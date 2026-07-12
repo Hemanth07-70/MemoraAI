@@ -1,0 +1,63 @@
+# ========================
+# Java / Maven
+# ========================
+backend/target/
+backend/*.jar
+backend/*.war
+backend/*.class
+backend/.mvn/wrapper/maven-wrapper.jar
+*.log
+
+# ========================
+# Python
+# ========================
+ai-service/__pycache__/
+ai-service/**/__pycache__/
+ai-service/*.pyc
+ai-service/.venv/
+ai-service/venv/
+ai-service/*.egg-info/
+ai-service/dist/
+ai-service/build/
+
+# ========================
+# Node / Frontend
+# ========================
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ========================
+# Docker
+# ========================
+docker/data/
+docker/volumes/
+
+# ========================
+# IDE
+# ========================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ========================
+# Environment
+# ========================
+.env
+.env.local
+.env.*.local
+
+# ========================
+# Models & Datasets
+# ========================
+models/*.bin
+models/*.pt
+models/*.onnx
+datasets/*.csv
+datasets/*.json
+datasets/*.parquet
+test.txt
+test_auth.sh

@@ -1,0 +1,47 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: memoraai-backend
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/memoraai}
+    username: ${SPRING_DATASOURCE_USERNAME:memoraai}
+    password: ${SPRING_DATASOURCE_PASSWORD:memoraai_secret}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+jwt:
+  secret: ${JWT_SECRET:89q324y5q38479ytq384798y3q7498y3q47895tq34895t}
+  expiration: ${JWT_EXPIRATION:86400000}
+
+storage:
+  upload-dir: ${STORAGE_UPLOAD_DIR:storage/uploads/documents}
+
+spring.servlet.multipart:
+  max-file-size: 50MB
+  max-request-size: 50MB
+
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html

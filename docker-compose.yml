@@ -1,0 +1,86 @@
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: memoraai-postgres
+    environment:
+      POSTGRES_DB: memoraai
+      POSTGRES_USER: memoraai
+      POSTGRES_PASSWORD: memoraai_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - memoraai-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memoraai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: memoraai-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - memoraai-network
+    profiles:
+      - ai
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: memoraai-backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/memoraai
+      SPRING_DATASOURCE_USERNAME: memoraai
+      SPRING_DATASOURCE_PASSWORD: memoraai_secret
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - memoraai-network
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: memoraai-ai-service
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    ports:
+      - "8000:8000"
+    networks:
+      - memoraai-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: memoraai-frontend
+    environment:
+      VITE_BACKEND_URL: http://localhost:8080
+      VITE_AI_SERVICE_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+      - ai-service
+    networks:
+      - memoraai-network
+
+volumes:
+  postgres_data:
+  ollama_data:
+
+networks:
+  memoraai-network:
+    driver: bridge
