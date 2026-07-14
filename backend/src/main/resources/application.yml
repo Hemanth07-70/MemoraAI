@@ -23,6 +23,24 @@ jwt:
   secret: ${JWT_SECRET:89q324y5q38479ytq384798y3q7498y3q47895tq34895t}
   expiration: ${JWT_EXPIRATION:86400000}
 
+memoraai:
+  ai:
+    base-url: ${AI_SERVICE_URL:http://localhost:8000}
+    provider: ${LLM_PROVIDER:nemotron}
+    hallucination-threshold: ${AI_HALLUCINATION_THRESHOLD:0.30}
+    nemotron:
+      api-key: ${NEMOTRON_API_KEY:}
+      base-url: https://integrate.api.nvidia.com/v1
+      model: nvidia/nemotron-3-super-120b-a12b
+      timeout: 60s
+    ollama:
+      base-url: ${OLLAMA_URL:http://localhost:11434}
+      model: ${AI_MODEL:llama3}
+      timeout: ${AI_TIMEOUT:60s}
+  chunking:
+    chunk-size: ${CHUNKING_CHUNK_SIZE:1000}
+    overlap: ${CHUNKING_OVERLAP:200}
+
 storage:
   upload-dir: ${STORAGE_UPLOAD_DIR:storage/uploads/documents}
 

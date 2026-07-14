@@ -23,6 +23,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
     private final UserDetailsService userDetailsService;
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
     @Override
     protected void doFilterInternal(
@@ -36,6 +37,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         final String userEmail;
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            log.info("Authorization header missing or does not start with Bearer");
             filterChain.doFilter(request, response);
             return;
         }
@@ -43,11 +45,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         jwt = authHeader.substring(7);
         try {
             userEmail = jwtUtil.extractUsername(jwt);
+            log.info("Extracted username from JWT: {}", userEmail);
             
             if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
                 UserDetails userDetails = this.userDetailsService.loadUserByUsername(userEmail);
+                log.info("User loaded from UserDetailsService: {}", userDetails.getUsername());
                 
                 if (jwtUtil.validateToken(jwt, userDetails)) {
+                    log.info("Token validated successfully for user: {}", userDetails.getUsername());
                     UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                             userDetails,
                             null,
@@ -55,9 +60,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     );
                     authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                     SecurityContextHolder.getContext().setAuthentication(authToken);
+                } else {
+                    log.warn("Token validation failed for user: {}", userDetails.getUsername());
                 }
             }
         } catch (Exception ex) {
+            log.error("Exception during JWT authentication: {}", ex.getMessage(), ex);
             // Token is invalid or expired; leave SecurityContext empty and let the authentication entry point handle it.
         }
         

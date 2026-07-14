@@ -83,7 +83,7 @@ class DocumentServiceTest {
         
         verify(documentRepository).save(any(Document.class));
         verify(processingJobService).createJob(testDocument, JobType.OCR);
-        verify(processingJobService).createJob(testDocument, JobType.EMBEDDING);
+        verify(processingJobService, never()).createJob(testDocument, JobType.EMBEDDING);
     }
 
     @Test

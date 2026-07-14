@@ -3,6 +3,7 @@ package com.memoraai.processing.entity;
 public enum JobType {
     OCR,
     EMBEDDING,
+    INTELLIGENCE,
     SUMMARY,
     QUIZ,
     MEMORY_ANALYSIS,

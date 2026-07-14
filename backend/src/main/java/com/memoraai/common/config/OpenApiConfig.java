@@ -15,11 +15,11 @@ import org.springframework.context.annotation.Configuration;
                 description = "REST APIs for the MemoraAI Platform"
         ),
         security = {
-                @SecurityRequirement(name = "Bearer Authentication")
+                @SecurityRequirement(name = "bearerAuth")
         }
 )
 @SecurityScheme(
-        name = "Bearer Authentication",
+        name = "bearerAuth",
         type = SecuritySchemeType.HTTP,
         bearerFormat = "JWT",
         scheme = "bearer",

@@ -11,4 +11,5 @@ import java.util.UUID;
 @Repository
 public interface ProcessingJobRepository extends JpaRepository<ProcessingJob, UUID> {
     List<ProcessingJob> findByDocument(Document document);
+    List<ProcessingJob> findByStatus(com.memoraai.processing.entity.JobStatus status);
 }

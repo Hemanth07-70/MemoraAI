@@ -19,3 +19,8 @@ storage:
 spring.servlet.multipart:
   max-file-size: 50MB
   max-request-size: 50MB
+
+memoraai:
+  ai:
+    nemotron:
+      api-key: dummy-test-key

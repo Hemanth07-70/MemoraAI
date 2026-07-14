@@ -51,9 +51,8 @@ public class DocumentService {
 
         document = documentRepository.save(document);
 
-        // Create initial processing jobs (e.g., OCR or EMBEDDING)
+        // Create initial processing jobs (e.g., OCR)
         processingJobService.createJob(document, JobType.OCR);
-        processingJobService.createJob(document, JobType.EMBEDDING);
 
         return document;
     }

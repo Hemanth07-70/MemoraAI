@@ -1,0 +1,206 @@
+package com.memoraai.processing.service;
+
+import com.memoraai.document.entity.Document;
+import com.memoraai.document.entity.DocumentStatus;
+import com.memoraai.document.repository.DocumentRepository;
+import com.memoraai.extracteddocument.service.ExtractedDocumentService;
+import com.memoraai.processing.dto.AiProcessRequest;
+import com.memoraai.processing.dto.AiProcessResponse;
+import com.memoraai.processing.entity.JobStatus;
+import com.memoraai.processing.entity.JobType;
+import com.memoraai.processing.entity.ProcessingJob;
+import com.memoraai.processing.repository.ProcessingJobRepository;
+import com.memoraai.chunking.entity.DocumentChunk;
+import com.memoraai.chunking.repository.DocumentChunkRepository;
+import com.memoraai.embedding.service.EmbeddingService;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Slf4j
+@Service
+public class AiProcessingService {
+
+    private final ProcessingJobRepository jobRepository;
+    private final DocumentRepository documentRepository;
+    private final ExtractedDocumentService extractedDocumentService;
+    private final com.memoraai.chunking.service.DocumentChunkingService documentChunkingService;
+    private final ProcessingJobService processingJobService;
+    private final EmbeddingService embeddingService;
+    private final DocumentChunkRepository documentChunkRepository;
+    private final WebClient webClient;
+    private final com.memoraai.documentintelligence.service.DocumentIntelligenceService documentIntelligenceService;
+
+    public AiProcessingService(
+            ProcessingJobRepository jobRepository,
+            DocumentRepository documentRepository,
+            ExtractedDocumentService extractedDocumentService,
+            com.memoraai.chunking.service.DocumentChunkingService documentChunkingService,
+            ProcessingJobService processingJobService,
+            EmbeddingService embeddingService,
+            DocumentChunkRepository documentChunkRepository,
+            WebClient.Builder webClientBuilder,
+            com.memoraai.documentintelligence.service.DocumentIntelligenceService documentIntelligenceService,
+            @Value("${memoraai.ai.base-url}") String aiBaseUrl) {
+        this.jobRepository = jobRepository;
+        this.documentRepository = documentRepository;
+        this.extractedDocumentService = extractedDocumentService;
+        this.documentChunkingService = documentChunkingService;
+        this.processingJobService = processingJobService;
+        this.embeddingService = embeddingService;
+        this.documentChunkRepository = documentChunkRepository;
+        this.webClient = webClientBuilder.baseUrl(aiBaseUrl).build();
+        this.documentIntelligenceService = documentIntelligenceService;
+    }
+
+    @Scheduled(fixedDelay = 5000)
+    @Transactional
+    public void processPendingJobs() {
+        List<ProcessingJob> pendingJobs = jobRepository.findByStatus(JobStatus.PENDING);
+        if (pendingJobs.isEmpty()) {
+            return; // No jobs to process
+        }
+
+        log.info("Found {} pending processing jobs.", pendingJobs.size());
+
+        for (ProcessingJob job : pendingJobs) {
+            try {
+                processJob(job);
+            } catch (Exception e) {
+                log.error("Failed to process job {}: {}", job.getId(), e.getMessage());
+                handleJobFailure(job, e.getMessage());
+            }
+        }
+    }
+
+    private void processJob(ProcessingJob job) {
+        log.info("Starting processing for job {} of type {}", job.getId(), job.getJobType());
+        
+        Document document = job.getDocument();
+        if (document == null) {
+            throw new IllegalStateException("Job has no associated document.");
+        }
+
+        if (JobType.EMBEDDING.equals(job.getJobType())) {
+            processEmbeddingJob(job);
+            return;
+        }
+
+        if (JobType.INTELLIGENCE.equals(job.getJobType())) {
+            processIntelligenceJob(job);
+            return;
+        }
+
+        AiProcessRequest request = AiProcessRequest.builder()
+                .jobId(job.getId())
+                .documentId(document.getId())
+                .jobType(job.getJobType().name())
+                .filePath(document.getStoragePath())
+                .build();
+
+        AiProcessResponse response = webClient.post()
+                .uri("/api/v1/process")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(request)
+                .retrieve()
+                .bodyToMono(AiProcessResponse.class)
+                .block();
+
+        if (response != null && response.isSuccess()) {
+            if ("COMPLETED".equals(response.getStatus()) && "OCR".equals(job.getJobType().name())) {
+                var extractedDocument = extractedDocumentService.saveExtraction(document, response);
+                documentChunkingService.chunkDocument(extractedDocument);
+                
+                // Create EMBEDDING job after OCR completes
+                processingJobService.createJob(document, JobType.EMBEDDING);
+                
+                job.setStatus(JobStatus.COMPLETED);
+                job.setProgress(100);
+                job.setCompletedAt(LocalDateTime.now());
+                jobRepository.save(job);
+                
+                // Keep document status READY (or update it after embedding)
+                document.setStatus(DocumentStatus.READY);
+                documentRepository.save(document);
+                
+                log.info("Job {} successfully completed extraction and chunking. Status: {}", job.getId(), response.getStatus());
+            } else {
+                job.setStatus(JobStatus.PROCESSING);
+                jobRepository.save(job);
+                log.info("Job {} successfully dispatched to AI service. Status: {}", job.getId(), response.getStatus());
+            }
+        } else {
+            String errorMsg = response != null ? response.getMessage() : "Null response from AI service";
+            handleJobFailure(job, "AI Service rejected job: " + errorMsg);
+        }
+    }
+
+    private void handleJobFailure(ProcessingJob job, String errorMessage) {
+        job.setStatus(JobStatus.FAILED);
+        job.setErrorMessage(errorMessage);
+        jobRepository.save(job);
+        log.error("Job {} marked as FAILED. Reason: {}", job.getId(), errorMessage);
+    }
+
+    private void processEmbeddingJob(ProcessingJob job) {
+        log.info("Starting embedding generation for job {}", job.getId());
+        job.setStatus(JobStatus.PROCESSING);
+        jobRepository.save(job);
+        
+        try {
+            List<DocumentChunk> chunks = documentChunkRepository.findByExtractedDocumentDocumentIdOrderByChunkIndexAsc(job.getDocument().getId());
+            int total = chunks.size();
+            
+            if (total == 0) {
+                log.warn("No chunks found for document {}", job.getDocument().getId());
+            } else {
+                for (int i = 0; i < total; i++) {
+                    embeddingService.generateAndPersistEmbedding(chunks.get(i));
+                    
+                    int progress = (int) (((double) (i + 1) / total) * 100);
+                    job.setProgress(progress);
+                    jobRepository.save(job);
+                }
+            }
+            
+            job.setStatus(JobStatus.COMPLETED);
+            job.setProgress(100);
+            job.setCompletedAt(LocalDateTime.now());
+            jobRepository.save(job);
+            
+            // Generate Intelligence Job after Embedding completes
+            processingJobService.createJob(job.getDocument(), JobType.INTELLIGENCE);
+            
+            log.info("Job {} successfully completed embedding generation.", job.getId());
+        } catch (Exception e) {
+            handleJobFailure(job, "Embedding generation failed: " + e.getMessage());
+        }
+    }
+
+    private void processIntelligenceJob(ProcessingJob job) {
+        log.info("Starting intelligence generation for job {}", job.getId());
+        job.setStatus(JobStatus.PROCESSING);
+        jobRepository.save(job);
+        
+        try {
+            documentIntelligenceService.generateIntelligence(job.getDocument().getId());
+            
+            job.setStatus(JobStatus.COMPLETED);
+            job.setProgress(100);
+            job.setCompletedAt(LocalDateTime.now());
+            jobRepository.save(job);
+            
+            log.info("Job {} successfully completed intelligence generation.", job.getId());
+        } catch (Exception e) {
+            handleJobFailure(job, "Intelligence generation failed: " + e.getMessage());
+        }
+    }
+}
