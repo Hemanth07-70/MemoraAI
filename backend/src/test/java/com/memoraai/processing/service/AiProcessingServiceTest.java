@@ -57,6 +57,9 @@ class AiProcessingServiceTest {
         documentChunkRepository = mock(DocumentChunkRepository.class);
         documentIntelligenceService = mock(com.memoraai.documentintelligence.service.DocumentIntelligenceService.class);
         com.memoraai.chunking.service.DocumentChunkingService chunkingService = mock(com.memoraai.chunking.service.DocumentChunkingService.class);
+        com.memoraai.concept.service.ConceptExtractionService conceptExtractionService = mock(com.memoraai.concept.service.ConceptExtractionService.class);
+        com.memoraai.anme.service.KnowledgeGraphService knowledgeGraphService = mock(com.memoraai.anme.service.KnowledgeGraphService.class);
+        com.memoraai.anme.service.ANMEMemoryService anmeMemoryService = mock(com.memoraai.anme.service.ANMEMemoryService.class);
         WebClient.Builder webClientBuilder = WebClient.builder();
         
         aiProcessingService = new AiProcessingService(
@@ -69,6 +72,9 @@ class AiProcessingServiceTest {
                 documentChunkRepository,
                 webClientBuilder,
                 documentIntelligenceService,
+                conceptExtractionService,
+                knowledgeGraphService,
+                anmeMemoryService,
                 mockWebServer.url("/").toString()
         );
     }
@@ -176,6 +182,9 @@ class AiProcessingServiceTest {
         assertEquals(JobStatus.COMPLETED, savedJob.getStatus());
         assertEquals(100, savedJob.getProgress());
         assertNotNull(savedJob.getCompletedAt());
+        
+        verify(processingJobService).createJob(document, JobType.CONCEPT_EXTRACTION);
+        verify(processingJobService).createJob(document, JobType.INTELLIGENCE);
     }
 
     @Test

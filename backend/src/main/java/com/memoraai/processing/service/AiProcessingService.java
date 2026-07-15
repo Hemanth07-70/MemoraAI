@@ -38,6 +38,9 @@ public class AiProcessingService {
     private final DocumentChunkRepository documentChunkRepository;
     private final WebClient webClient;
     private final com.memoraai.documentintelligence.service.DocumentIntelligenceService documentIntelligenceService;
+    private final com.memoraai.concept.service.ConceptExtractionService conceptExtractionService;
+    private final com.memoraai.anme.service.KnowledgeGraphService knowledgeGraphService;
+    private final com.memoraai.anme.service.ANMEMemoryService anmeMemoryService;
 
     public AiProcessingService(
             ProcessingJobRepository jobRepository,
@@ -49,6 +52,9 @@ public class AiProcessingService {
             DocumentChunkRepository documentChunkRepository,
             WebClient.Builder webClientBuilder,
             com.memoraai.documentintelligence.service.DocumentIntelligenceService documentIntelligenceService,
+            com.memoraai.concept.service.ConceptExtractionService conceptExtractionService,
+            com.memoraai.anme.service.KnowledgeGraphService knowledgeGraphService,
+            com.memoraai.anme.service.ANMEMemoryService anmeMemoryService,
             @Value("${memoraai.ai.base-url}") String aiBaseUrl) {
         this.jobRepository = jobRepository;
         this.documentRepository = documentRepository;
@@ -59,6 +65,9 @@ public class AiProcessingService {
         this.documentChunkRepository = documentChunkRepository;
         this.webClient = webClientBuilder.baseUrl(aiBaseUrl).build();
         this.documentIntelligenceService = documentIntelligenceService;
+        this.conceptExtractionService = conceptExtractionService;
+        this.knowledgeGraphService = knowledgeGraphService;
+        this.anmeMemoryService = anmeMemoryService;
     }
 
     @Scheduled(fixedDelay = 5000)
@@ -93,9 +102,18 @@ public class AiProcessingService {
             processEmbeddingJob(job);
             return;
         }
-
         if (JobType.INTELLIGENCE.equals(job.getJobType())) {
             processIntelligenceJob(job);
+            return;
+        }
+
+        if (JobType.CONCEPT_EXTRACTION.equals(job.getJobType())) {
+            processConceptExtractionJob(job);
+            return;
+        }
+
+        if (JobType.KNOWLEDGE_GRAPH.equals(job.getJobType())) {
+            processKnowledgeGraphJob(job);
             return;
         }
 
@@ -142,6 +160,37 @@ public class AiProcessingService {
             handleJobFailure(job, "AI Service rejected job: " + errorMsg);
         }
     }
+    
+    private void processKnowledgeGraphJob(ProcessingJob job) {
+        log.info("Starting knowledge graph generation for job {}", job.getId());
+        job.setStatus(JobStatus.PROCESSING);
+        jobRepository.save(job);
+
+        try {
+            Document document = job.getDocument();
+            knowledgeGraphService.generateKnowledgeGraph(document.getId());
+
+            job.setStatus(JobStatus.COMPLETED);
+            job.setProgress(100);
+            job.setCompletedAt(LocalDateTime.now());
+            jobRepository.save(job);
+
+            log.info("Job {} successfully completed knowledge graph generation.", job.getId());
+
+            // Initialize UserMemoryState for every extracted concept (idempotent)
+            try {
+                anmeMemoryService.initializeMemoryStates(
+                        document.getId(),
+                        document.getOwner().getId(),
+                        document.getOwner());
+                log.info("Memory states initialized for document {}", document.getId());
+            } catch (Exception memEx) {
+                log.warn("Memory state initialization failed for document {}: {}", document.getId(), memEx.getMessage());
+            }
+        } catch (Exception e) {
+            handleJobFailure(job, "Knowledge graph generation failed: " + e.getMessage());
+        }
+    }
 
     private void handleJobFailure(ProcessingJob job, String errorMessage) {
         job.setStatus(JobStatus.FAILED);
@@ -176,7 +225,8 @@ public class AiProcessingService {
             job.setCompletedAt(LocalDateTime.now());
             jobRepository.save(job);
             
-            // Generate Intelligence Job after Embedding completes
+            // Branch off CONCEPT_EXTRACTION and INTELLIGENCE in parallel
+            processingJobService.createJob(job.getDocument(), JobType.CONCEPT_EXTRACTION);
             processingJobService.createJob(job.getDocument(), JobType.INTELLIGENCE);
             
             log.info("Job {} successfully completed embedding generation.", job.getId());
@@ -201,6 +251,28 @@ public class AiProcessingService {
             log.info("Job {} successfully completed intelligence generation.", job.getId());
         } catch (Exception e) {
             handleJobFailure(job, "Intelligence generation failed: " + e.getMessage());
+        }
+    }
+
+    private void processConceptExtractionJob(ProcessingJob job) {
+        log.info("Starting concept extraction for job {}", job.getId());
+        job.setStatus(JobStatus.PROCESSING);
+        jobRepository.save(job);
+        
+        try {
+            conceptExtractionService.extractConcepts(job.getDocument().getId());
+            
+            job.setStatus(JobStatus.COMPLETED);
+            job.setProgress(100);
+            job.setCompletedAt(LocalDateTime.now());
+            jobRepository.save(job);
+            
+            // Generate Knowledge Graph Job after Concept Extraction completes
+            processingJobService.createJob(job.getDocument(), JobType.KNOWLEDGE_GRAPH);
+            
+            log.info("Job {} successfully completed concept extraction.", job.getId());
+        } catch (Exception e) {
+            handleJobFailure(job, "Concept extraction failed: " + e.getMessage());
         }
     }
 }

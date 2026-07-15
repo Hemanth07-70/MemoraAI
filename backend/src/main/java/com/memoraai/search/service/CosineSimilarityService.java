@@ -41,10 +41,12 @@ public class CosineSimilarityService {
             allEmbeddings = allEmbeddings.stream()
                     .filter(emb -> documentId.equals(emb.getChunk().getExtractedDocument().getDocument().getId()))
                     .filter(emb -> emb.getChunk().getExtractedDocument().getDocument().getOwner().getId().equals(userId))
+                    .filter(emb -> !emb.getChunk().getExtractedDocument().getDocument().getIsDeleted())
                     .collect(Collectors.toList());
         } else if (userId != null) {
             allEmbeddings = allEmbeddings.stream()
                     .filter(emb -> emb.getChunk().getExtractedDocument().getDocument().getOwner().getId().equals(userId))
+                    .filter(emb -> !emb.getChunk().getExtractedDocument().getDocument().getIsDeleted())
                     .collect(Collectors.toList());
         }
         

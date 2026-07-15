@@ -7,6 +7,8 @@ import com.memoraai.document.dto.UploadResponse;
 import com.memoraai.document.entity.Document;
 import com.memoraai.document.mapper.DocumentMapper;
 import com.memoraai.document.service.DocumentService;
+import com.memoraai.extracteddocument.repository.ExtractedDocumentRepository;
+import com.memoraai.extracteddocument.entity.ExtractedDocument;
 import com.memoraai.user.entity.User;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,6 +32,7 @@ public class DocumentController {
 
     private final DocumentService documentService;
     private final DocumentMapper documentMapper;
+    private final ExtractedDocumentRepository extractedDocumentRepository;
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "Upload a document", description = "Uploads a new document (PDF, DOCX, PPTX, TXT, PNG, JPG, JPEG) up to 50MB")
@@ -88,5 +91,16 @@ public class DocumentController {
             @AuthenticationPrincipal User user) {
         documentService.deleteDocument(id, user);
         return ResponseEntity.ok(ApiResponse.success("Document deleted successfully", null));
+    }
+
+    @GetMapping("/{id}/text")
+    @Operation(summary = "Get document text", description = "Get the extracted text of a document")
+    public ResponseEntity<ApiResponse<String>> getDocumentText(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal User user) {
+        Document document = documentService.getDocumentById(id, user);
+        ExtractedDocument extracted = extractedDocumentRepository.findByDocument(document)
+                .orElseThrow(() -> new RuntimeException("Text not extracted for this document yet."));
+        return ResponseEntity.ok(ApiResponse.success("Text fetched successfully", extracted.getExtractedText()));
     }
 }
