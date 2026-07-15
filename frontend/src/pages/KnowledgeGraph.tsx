@@ -91,8 +91,8 @@ export function KnowledgeGraph() {
   }
 
   return (
-    <PageWrapper className="flex gap-6 relative w-full">
-      <div className="flex-1 glass-card rounded-2xl overflow-hidden relative flex flex-col h-[calc(100vh-8rem)]">
+    <PageWrapper className="flex h-[calc(100vh-8rem)] gap-6 relative">
+      <div className="flex-1 glass-card rounded-2xl overflow-hidden relative min-h-0 flex flex-col">
         <div className="p-4 border-b border-slate-200/50 dark:border-zinc-800 flex flex-col gap-4 z-20 bg-white/50 dark:bg-zinc-950/50 backdrop-blur-md">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent dark:from-indigo-400 dark:to-purple-400">
