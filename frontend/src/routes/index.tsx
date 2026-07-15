@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from "react-router-dom";
+import { createBrowserRouter } from "react-router-dom";
 import { Layout } from "../components/layout/Layout";
 
 // Lazy load pages for better performance (we'll create these files next)

@@ -48,7 +48,7 @@ export function KnowledgeGraph() {
       target: rel.targetConceptId,
     }));
 
-    const simulation = forceSimulation(d3Nodes)
+    const simulation = forceSimulation(d3Nodes as any)
       .force("link", forceLink(d3Edges).id((d: any) => d.id).distance(180))
       .force("charge", forceManyBody().strength(-1000).distanceMax(500))
       .force("center", forceCenter(0, 0))

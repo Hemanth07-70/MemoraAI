@@ -172,7 +172,7 @@ export function Dashboard() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 truncate">{doc.originalFileName}</h4>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 capitalize">{doc.status.toLowerCase()} • {new Date(doc.createdAt).toLocaleDateString()}</p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 capitalize">{doc.status.toLowerCase()} • {new Date(doc.uploadedAt).toLocaleDateString()}</p>
                   </div>
                   <Link to={`/chat/${doc.id}`} className="opacity-0 group-hover:opacity-100 p-2 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all">
                     <MessageSquare className="w-4 h-4" />
