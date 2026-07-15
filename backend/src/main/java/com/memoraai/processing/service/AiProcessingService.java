@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -71,7 +72,6 @@ public class AiProcessingService {
     }
 
     @Scheduled(fixedDelay = 5000)
-    @Transactional
     public void processPendingJobs() {
         List<ProcessingJob> pendingJobs = jobRepository.findByStatus(JobStatus.PENDING);
         if (pendingJobs.isEmpty()) {
@@ -130,6 +130,7 @@ public class AiProcessingService {
                 .bodyValue(request)
                 .retrieve()
                 .bodyToMono(AiProcessResponse.class)
+                .timeout(Duration.ofSeconds(60))
                 .block();
 
         if (response != null && response.isSuccess()) {
@@ -145,9 +146,7 @@ public class AiProcessingService {
                 job.setCompletedAt(LocalDateTime.now());
                 jobRepository.save(job);
                 
-                // Keep document status READY (or update it after embedding)
-                document.setStatus(DocumentStatus.READY);
-                documentRepository.save(document);
+                checkAndUpdateDocumentStatus(document);
                 
                 log.info("Job {} successfully completed extraction and chunking. Status: {}", job.getId(), response.getStatus());
             } else {
@@ -176,6 +175,7 @@ public class AiProcessingService {
             jobRepository.save(job);
 
             log.info("Job {} successfully completed knowledge graph generation.", job.getId());
+            checkAndUpdateDocumentStatus(job.getDocument());
 
             // Initialize UserMemoryState for every extracted concept (idempotent)
             try {
@@ -196,7 +196,25 @@ public class AiProcessingService {
         job.setStatus(JobStatus.FAILED);
         job.setErrorMessage(errorMessage);
         jobRepository.save(job);
+        
+        Document document = job.getDocument();
+        if (document != null) {
+            document.setStatus(DocumentStatus.FAILED);
+            documentRepository.save(document);
+        }
+        
         log.error("Job {} marked as FAILED. Reason: {}", job.getId(), errorMessage);
+    }
+
+    private void checkAndUpdateDocumentStatus(Document document) {
+        if (document == null) return;
+        List<ProcessingJob> allJobs = jobRepository.findByDocument(document);
+        boolean allCompleted = !allJobs.isEmpty() && allJobs.stream().allMatch(j -> j.getStatus() == JobStatus.COMPLETED);
+        if (allCompleted) {
+            document.setStatus(DocumentStatus.READY);
+            documentRepository.save(document);
+            log.info("Document {} is now fully READY.", document.getId());
+        }
     }
 
     private void processEmbeddingJob(ProcessingJob job) {
@@ -230,6 +248,7 @@ public class AiProcessingService {
             processingJobService.createJob(job.getDocument(), JobType.INTELLIGENCE);
             
             log.info("Job {} successfully completed embedding generation.", job.getId());
+            checkAndUpdateDocumentStatus(job.getDocument());
         } catch (Exception e) {
             handleJobFailure(job, "Embedding generation failed: " + e.getMessage());
         }
@@ -249,6 +268,7 @@ public class AiProcessingService {
             jobRepository.save(job);
             
             log.info("Job {} successfully completed intelligence generation.", job.getId());
+            checkAndUpdateDocumentStatus(job.getDocument());
         } catch (Exception e) {
             handleJobFailure(job, "Intelligence generation failed: " + e.getMessage());
         }
@@ -271,6 +291,7 @@ public class AiProcessingService {
             processingJobService.createJob(job.getDocument(), JobType.KNOWLEDGE_GRAPH);
             
             log.info("Job {} successfully completed concept extraction.", job.getId());
+            checkAndUpdateDocumentStatus(job.getDocument());
         } catch (Exception e) {
             handleJobFailure(job, "Concept extraction failed: " + e.getMessage());
         }

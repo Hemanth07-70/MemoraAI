@@ -24,6 +24,12 @@ export function Documents() {
   const { data: documents, isLoading } = useQuery({
     queryKey: ["documents"],
     queryFn: documentsApi.getAll,
+    refetchInterval: (query) => {
+      const docs = query.state.data;
+      if (!docs) return false;
+      const needsPolling = docs.some(d => d.status === 'PROCESSING' || d.status === 'UPLOADED');
+      return needsPolling ? 3000 : false;
+    }
   });
 
   const uploadMutation = useMutation({

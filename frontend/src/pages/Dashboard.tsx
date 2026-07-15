@@ -28,7 +28,13 @@ const mockChartData = [
 export function Dashboard() {
   const { data: documents = [], isLoading: isLoadingDocs } = useQuery({
     queryKey: ['documents'],
-    queryFn: documentsApi.getAll
+    queryFn: documentsApi.getAll,
+    refetchInterval: (query) => {
+      const docs = query.state.data;
+      if (!docs) return false;
+      const needsPolling = docs.some(d => d.status === 'PROCESSING' || d.status === 'UPLOADED');
+      return needsPolling ? 3000 : false;
+    }
   });
 
   const { data: memoryStates = [], isLoading: isLoadingMemory } = useQuery({

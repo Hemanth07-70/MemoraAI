@@ -11,5 +11,6 @@ import java.util.UUID;
 @Repository
 public interface ProcessingJobRepository extends JpaRepository<ProcessingJob, UUID> {
     List<ProcessingJob> findByDocument(Document document);
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"document", "document.owner"})
     List<ProcessingJob> findByStatus(com.memoraai.processing.entity.JobStatus status);
 }

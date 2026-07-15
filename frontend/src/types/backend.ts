@@ -19,7 +19,7 @@ export interface Document {
   mimeType: string;
   extension: string;
   size: number;
-  status: 'PENDING' | 'PROCESSING' | 'READY' | 'FAILED';
+  status: 'UPLOADED' | 'PROCESSING' | 'READY' | 'FAILED';
   downloadUrl?: string;
   uploadedAt: string;
 }
