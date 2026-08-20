@@ -23,7 +23,7 @@ services:
         sync: false
       - key: NEMOTRON_API_KEY
         sync: false
-        
+
   - type: web
     name: memoraai-ai-service
     env: docker
@@ -34,5 +34,5 @@ services:
     envVars:
       - key: BACKEND_URL
         value: "https://memoraai-backend.onrender.com"
-      - key: LLM_API_KEY
+      - key: HF_API_KEY
         sync: false

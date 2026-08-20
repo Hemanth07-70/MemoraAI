@@ -22,8 +22,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Base64;
 import java.util.List;
 
 @Slf4j
@@ -117,11 +121,21 @@ public class AiProcessingService {
             return;
         }
 
+        String fileContent = null;
+        String storagePath = document.getStoragePath();
+        try {
+            byte[] fileBytes = Files.readAllBytes(Paths.get(storagePath));
+            fileContent = Base64.getEncoder().encodeToString(fileBytes);
+        } catch (IOException e) {
+            log.warn("Could not read file at {}, sending path only: {}", storagePath, e.getMessage());
+        }
+
         AiProcessRequest request = AiProcessRequest.builder()
                 .jobId(job.getId())
                 .documentId(document.getId())
                 .jobType(job.getJobType().name())
-                .filePath(document.getStoragePath())
+                .filePath(storagePath)
+                .fileContent(fileContent)
                 .build();
 
         AiProcessResponse response = webClient.post()

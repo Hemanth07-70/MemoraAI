@@ -16,4 +16,5 @@ public class AiProcessRequest {
     private UUID documentId;
     private String jobType;
     private String filePath;
+    private String fileContent; // base64-encoded file bytes for cloud deployment
 }

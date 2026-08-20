@@ -1,11 +1,15 @@
 import logging
-from sentence_transformers import SentenceTransformer
+import os
+import requests
 
 logger = logging.getLogger(__name__)
 
+_HF_API_URL = "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2"
+_EMBEDDING_DIMENSION = 384
+
+
 class EmbeddingService:
     _instance = None
-    _model = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -14,21 +18,34 @@ class EmbeddingService:
         return cls._instance
 
     def _initialize(self):
-        self.model_name = "sentence-transformers/all-MiniLM-L6-v2"
-        logger.info(f"Loading embedding model: {self.model_name}")
-        # Load the model once
-        self._model = SentenceTransformer(self.model_name, device="cpu")
-        self.dimension = self._model.get_sentence_embedding_dimension()
-        logger.info(f"Embedding model loaded successfully. Dimension: {self.dimension}")
+        self._api_token = os.environ.get("HF_API_KEY", "")
+        self.dimension = _EMBEDDING_DIMENSION
+        logger.info("EmbeddingService ready (HF Inference API, model=all-MiniLM-L6-v2, dim=%d)", self.dimension)
 
-    def generate_embedding(self, text: str) -> list[float]:
+    def generate_embedding(self, text: str) -> list:
         if not text or not text.strip():
             logger.warning("Empty text received for embedding generation.")
             return []
-        
-        # Convert NumPy array to Python list of floats
-        embedding = self._model.encode(text, convert_to_numpy=True).tolist()
-        return embedding
+
+        headers = {"Content-Type": "application/json"}
+        if self._api_token:
+            headers["Authorization"] = f"Bearer {self._api_token}"
+
+        response = requests.post(
+            _HF_API_URL,
+            headers=headers,
+            json={"inputs": text, "options": {"wait_for_model": True}},
+            timeout=30,
+        )
+        response.raise_for_status()
+        result = response.json()
+
+        # HF feature-extraction returns [[float x 384]] for a single input
+        if isinstance(result, list) and len(result) > 0 and isinstance(result[0], list):
+            return result[0]
+        if isinstance(result, list) and len(result) == _EMBEDDING_DIMENSION:
+            return result
+        raise ValueError(f"Unexpected embedding response shape: {type(result)}")
 
     def get_dimension(self) -> int:
         return self.dimension
