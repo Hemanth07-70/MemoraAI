@@ -1,6 +1,6 @@
 // Uses the HF Inference API for sentence-transformers/all-MiniLM-L6-v2
 const HF_URL =
-  "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2";
+  "https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction";
 const DIM = 384;
 
 export default async function handler(request) {

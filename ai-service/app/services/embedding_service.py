@@ -4,7 +4,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-_HF_API_URL = "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2"
+_HF_API_URL = "https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction"
 _EMBEDDING_DIMENSION = 384
 
 
