@@ -15,6 +15,8 @@ import com.memoraai.chunking.repository.DocumentChunkRepository;
 import com.memoraai.embedding.service.EmbeddingService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -73,6 +75,20 @@ public class AiProcessingService {
         this.conceptExtractionService = conceptExtractionService;
         this.knowledgeGraphService = knowledgeGraphService;
         this.anmeMemoryService = anmeMemoryService;
+    }
+
+    // On startup, reset any jobs left in PROCESSING state from a previous run (e.g. Render restart mid-job)
+    @EventListener(ApplicationReadyEvent.class)
+    public void resetStuckJobsOnStartup() {
+        List<ProcessingJob> stuckJobs = jobRepository.findByStatus(JobStatus.PROCESSING);
+        if (!stuckJobs.isEmpty()) {
+            log.warn("Found {} stuck PROCESSING jobs on startup — resetting to PENDING", stuckJobs.size());
+            stuckJobs.forEach(job -> {
+                job.setStatus(JobStatus.PENDING);
+                job.setProgress(0);
+                jobRepository.save(job);
+            });
+        }
     }
 
     @Scheduled(fixedDelay = 5000)
