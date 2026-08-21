@@ -2,6 +2,7 @@ package com.memoraai.embedding.repository;
 
 import com.memoraai.embedding.entity.DocumentEmbedding;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
