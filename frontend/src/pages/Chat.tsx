@@ -39,11 +39,15 @@ export function Chat() {
         { role: "assistant", content: data?.answer || "Sorry, I couldn't generate an answer." },
       ]);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       console.error("Chat error:", error);
+      const isTimeout = error?.code === 'ECONNABORTED' || error?.message?.includes('timeout') || !error?.response;
+      const msg = isTimeout
+        ? "The server is waking up from sleep — this can take up to 60 seconds on the free tier. Please wait a moment and try again."
+        : "Failed to get a response. Please try again.";
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: "Error: Failed to communicate with the AI service. Please try again." },
+        { role: "assistant", content: msg },
       ]);
     }
   });

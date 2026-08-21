@@ -6,6 +6,7 @@ export const AI_SERVICE_URL = import.meta.env.VITE_AI_SERVICE_URL || "http://loc
 
 const api = axios.create({
   baseURL: BACKEND_URL,
+  timeout: 90000, // 90s — enough to survive a cold start wake-up
 });
 
 // Intercept requests to add the JWT token
