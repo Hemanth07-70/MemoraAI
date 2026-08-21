@@ -1,5 +1,8 @@
 package com.memoraai.chat.service;
 
+import com.memoraai.anme.repository.ConceptRelationshipRepository;
+import com.memoraai.anme.repository.ConceptRepository;
+import com.memoraai.anme.service.ANMEMemoryService;
 import com.memoraai.chat.dto.ChatAskRequest;
 import com.memoraai.chat.dto.ChatAskResponse;
 import com.memoraai.embedding.service.EmbeddingService;
@@ -12,6 +15,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -42,16 +46,31 @@ class ChatServiceTest {
     @Mock
     private com.memoraai.conversation.service.ConversationService conversationService;
 
+    @Mock
+    private ConceptRepository conceptRepository;
+
+    @Mock
+    private ConceptRelationshipRepository conceptRelationshipRepository;
+
+    @Mock
+    private ANMEMemoryService anmeMemoryService;
+
     private ChatService chatService;
 
     @BeforeEach
     void setUp() {
+        when(conceptRepository.findByDocumentId(any())).thenReturn(Collections.emptyList());
+        when(anmeMemoryService.getMemoryStatesByDocument(any(), any())).thenReturn(Collections.emptyList());
+
         chatService = new ChatService(
                 embeddingService,
                 cosineSimilarityService,
                 promptBuilderService,
                 llmService,
                 conversationService,
+                conceptRepository,
+                conceptRelationshipRepository,
+                anmeMemoryService,
                 0.30
         );
     }
