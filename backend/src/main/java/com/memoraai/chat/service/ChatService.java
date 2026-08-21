@@ -14,6 +14,7 @@ import com.memoraai.search.service.CosineSimilarityService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -142,7 +143,15 @@ public class ChatService {
     // ─────────────────────────────────────────────────────────────────────────
     private String expandQueryWithKG(String query, UUID documentId) {
         if (documentId == null) return query;
+        try {
+            return doExpandQueryWithKG(query, documentId);
+        } catch (Exception e) {
+            log.warn("KG query expansion failed (falling back to original query): {}", e.getMessage());
+            return query;
+        }
+    }
 
+    private String doExpandQueryWithKG(String query, UUID documentId) {
         List<Concept> concepts = conceptRepository.findByDocumentId(documentId);
         if (concepts.isEmpty()) return query;
 
@@ -197,6 +206,16 @@ public class ChatService {
     // ─────────────────────────────────────────────────────────────────────────
     private List<SearchResultItem> reRankWithANME(
             List<SearchResultItem> results, UUID userId, UUID documentId) {
+        try {
+            return doReRankWithANME(results, userId, documentId);
+        } catch (Exception e) {
+            log.warn("ANME re-ranking failed (returning unranked results): {}", e.getMessage());
+            return results;
+        }
+    }
+
+    private List<SearchResultItem> doReRankWithANME(
+            List<SearchResultItem> results, UUID userId, UUID documentId) {
 
         List<UserMemoryState> states =
                 anmeMemoryService.getMemoryStatesByDocument(userId, documentId);
@@ -204,6 +223,7 @@ public class ChatService {
 
         Map<String, Double> conceptMultiplier = new HashMap<>();
         for (UserMemoryState s : states) {
+            String conceptName = s.getConcept().getNormalizedName();
             double m = s.getMemoryScore();
             double mult;
             if (m >= 0.30 && m <= 0.70) {
@@ -213,7 +233,7 @@ public class ChatService {
             } else {
                 mult = 1.00; // unfamiliar
             }
-            conceptMultiplier.put(s.getConcept().getNormalizedName(), mult);
+            conceptMultiplier.put(conceptName, mult);
         }
 
         for (SearchResultItem item : results) {

@@ -17,7 +17,7 @@ public interface ConceptRelationshipRepository extends JpaRepository<ConceptRela
     @Query("SELECT r FROM ConceptRelationship r WHERE r.sourceConcept.document.id = :documentId OR r.targetConcept.document.id = :documentId")
     List<ConceptRelationship> findByDocumentId(@Param("documentId") UUID documentId);
 
-    @Query("SELECT r FROM ConceptRelationship r WHERE r.sourceConcept.id = :conceptId OR r.targetConcept.id = :conceptId")
+    @Query("SELECT r FROM ConceptRelationship r JOIN FETCH r.sourceConcept JOIN FETCH r.targetConcept WHERE r.sourceConcept.id = :conceptId OR r.targetConcept.id = :conceptId")
     List<ConceptRelationship> findNeighborsByConceptId(@Param("conceptId") UUID conceptId);
 
     List<ConceptRelationship> findBySourceConceptIdAndRelationshipType(UUID sourceConceptId, com.memoraai.anme.entity.RelationshipType type);
