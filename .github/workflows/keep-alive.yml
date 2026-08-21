@@ -2,8 +2,8 @@ name: Keep Services Alive
 
 on:
   schedule:
-    # Every 10 minutes — keeps Render free tier from sleeping (sleeps after 15min)
-    - cron: '*/10 * * * *'
+    # Every 5 minutes — minimum GitHub Actions interval, well within Render's 15min sleep window
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
