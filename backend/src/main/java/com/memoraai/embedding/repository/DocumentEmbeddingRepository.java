@@ -19,6 +19,12 @@ public interface DocumentEmbeddingRepository extends JpaRepository<DocumentEmbed
 
     Optional<DocumentEmbedding> findByChunkId(UUID chunkId);
 
+    /** Writes the vector column via explicit cast (Hibernate can't cast String→vector implicitly) */
+    @Modifying
+    @Query(value = "UPDATE document_embeddings SET embedding_vector = CAST(:embeddingJson AS vector) WHERE id = :id",
+            nativeQuery = true)
+    void updateEmbeddingVector(@Param("id") UUID id, @Param("embeddingJson") String embeddingJson);
+
     /** pgvector HNSW search — user-scoped, cross-document */
     @Query(value = """
         SELECT d.id            AS document_id,

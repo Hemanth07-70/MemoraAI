@@ -78,13 +78,14 @@ public class EmbeddingService {
                         .chunk(chunk)
                         .dimension(response.getDimension())
                         .embeddingJson(embeddingJson)
-                        .embeddingVector(embeddingJson) // pgvector column — PostgreSQL casts text→vector
                         .modelName(embeddingProperties.getModel())
                         .generatedAt(Instant.now())
                         .generationTimeMs(generationTime)
                         .build();
 
                 embeddingRepository.save(embedding);
+                // Write vector column separately — requires explicit CAST in native SQL
+                embeddingRepository.updateEmbeddingVector(embedding.getId(), embeddingJson);
                 log.info("Embedding stored for chunk {} (Dimension: {}, Time: {}ms)", 
                         chunk.getId(), response.getDimension(), generationTime);
             } else {

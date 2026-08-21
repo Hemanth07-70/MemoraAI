@@ -30,8 +30,8 @@ public class DocumentEmbedding {
     @Column(columnDefinition = "TEXT", nullable = false)
     private String embeddingJson;
 
-    // pgvector column — populated on save; used for HNSW similarity search
-    @Column(name = "embedding_vector", columnDefinition = "vector(384)")
+    // pgvector column — written via native SQL (explicit cast required); used for HNSW similarity search
+    @Column(name = "embedding_vector", columnDefinition = "vector(384)", insertable = false, updatable = false)
     private String embeddingVector;
 
     @Column(nullable = false, length = 100)
