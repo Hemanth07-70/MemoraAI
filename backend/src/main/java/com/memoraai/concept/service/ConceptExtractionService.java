@@ -17,6 +17,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -44,34 +45,49 @@ public class ConceptExtractionService {
             return;
         }
 
-        log.info("Processing {} chunks for concept extraction in batches", chunks.size());
+        log.info("Processing {} chunks for concept extraction in parallel batches", chunks.size());
 
-        Map<String, AggregatedConcept> aggregatedConcepts = new HashMap<>();
-
+        // Build batches up front so index is available when collecting results
+        List<List<DocumentChunk>> batches = new ArrayList<>();
+        List<String> batchTexts = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i += 5) {
             int end = Math.min(chunks.size(), i + 5);
-            List<DocumentChunk> batch = chunks.subList(i, end);
-            
-            StringBuilder batchText = new StringBuilder();
-            for (DocumentChunk chunk : batch) {
-                batchText.append(chunk.getChunkText()).append("\n\n");
+            List<DocumentChunk> batch = new ArrayList<>(chunks.subList(i, end));
+            StringBuilder sb = new StringBuilder();
+            for (DocumentChunk chunk : batch) sb.append(chunk.getChunkText()).append("\n\n");
+            batches.add(batch);
+            batchTexts.add(sb.toString());
+        }
+
+        // Fire all Nemotron calls in parallel (cap at 4 concurrent to respect rate limits)
+        int parallelism = Math.min(4, batches.size());
+        ExecutorService executor = Executors.newFixedThreadPool(parallelism);
+        List<Future<List<ConceptExtractionResult>>> futures = new ArrayList<>();
+        for (String text : batchTexts) {
+            futures.add(executor.submit(() -> extractFromChunk(text)));
+        }
+        executor.shutdown();
+
+        Map<String, AggregatedConcept> aggregatedConcepts = new HashMap<>();
+        for (int i = 0; i < futures.size(); i++) {
+            List<ConceptExtractionResult> extracted;
+            try {
+                extracted = futures.get(i).get(120, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                log.error("Batch {} extraction timed out or failed: {}", i, e.getMessage());
+                extracted = Collections.emptyList();
             }
 
-            List<ConceptExtractionResult> extracted = extractFromChunk(batchText.toString());
-            
+            List<DocumentChunk> batch = batches.get(i);
             for (ConceptExtractionResult res : extracted) {
                 if (res.getName() == null || res.getName().isBlank()) continue;
                 String normalizedName = res.getName().trim().toLowerCase();
-                
-                // Exclude very generic or short terms
                 if (normalizedName.length() < 3 || normalizedName.split("\\s+").length > 5) continue;
 
                 AggregatedConcept agg = aggregatedConcepts.computeIfAbsent(normalizedName, k -> new AggregatedConcept(res.getName(), batch.get(0)));
                 agg.frequency++;
                 agg.llmImportanceSum += (res.getImportance() != null ? res.getImportance() : 0.0);
                 agg.llmDifficultySum += (res.getDifficulty() != null ? res.getDifficulty() : 0.0);
-                
-                // Keep the longest/best description
                 if (res.getDescription() != null && res.getDescription().length() > agg.description.length()) {
                     agg.description = res.getDescription();
                 }
