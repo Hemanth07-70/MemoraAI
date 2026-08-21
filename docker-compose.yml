@@ -1,7 +1,8 @@
 services:
 
   postgres:
-    image: postgres:16-alpine
+    # pgvector-enabled image required for HNSW similarity search
+    image: pgvector/pgvector:pg16
     container_name: memoraai-postgres
     environment:
       POSTGRES_DB: memoraai
@@ -19,18 +20,6 @@ services:
       timeout: 5s
       retries: 5
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: memoraai-ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    networks:
-      - memoraai-network
-    profiles:
-      - ai
-
   backend:
     build:
       context: ./backend
@@ -44,6 +33,7 @@ services:
       AI_SERVICE_URL: http://ai-service:8000
       LLM_PROVIDER: nemotron
       NEMOTRON_API_KEY: ${NEMOTRON_API_KEY}
+      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://localhost:5174
     ports:
       - "8080:8080"
     volumes:
@@ -60,7 +50,7 @@ services:
       dockerfile: Dockerfile
     container_name: memoraai-ai-service
     environment:
-      OLLAMA_HOST: http://ollama:11434
+      HF_API_KEY: ${HF_API_KEY}
     ports:
       - "8000:8000"
     volumes:
@@ -86,7 +76,6 @@ services:
 
 volumes:
   postgres_data:
-  ollama_data:
   document_storage:
 
 networks:
