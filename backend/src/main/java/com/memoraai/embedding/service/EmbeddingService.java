@@ -78,6 +78,7 @@ public class EmbeddingService {
                         .chunk(chunk)
                         .dimension(response.getDimension())
                         .embeddingJson(embeddingJson)
+                        .embeddingVector(embeddingJson) // pgvector column — PostgreSQL casts text→vector
                         .modelName(embeddingProperties.getModel())
                         .generatedAt(Instant.now())
                         .generationTimeMs(generationTime)
