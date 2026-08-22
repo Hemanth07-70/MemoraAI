@@ -1,38 +1,53 @@
 package com.memoraai.common.config;
 
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Creates the HNSW vector index after Hibernate finishes DDL.
- * Must run after ApplicationReadyEvent (table exists by then).
- * The index is needed for Layer 1 of the 3-layer RAG pipeline.
+ * Runs after Hibernate DDL. Uses JdbcTemplate (no @Transactional) so a DDL
+ * failure does not poison a surrounding transaction and crash the app.
+ *
+ * Step 1: CREATE EXTENSION — safe to run every startup (IF NOT EXISTS is idempotent).
+ *         This covers the case where the postgres volume existed before init.sql was added.
+ * Step 2: CREATE INDEX USING hnsw — needed for Layer 1 of the 3-layer RAG pipeline.
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class VectorIndexInitializer {
 
-    @PersistenceContext
-    private EntityManager entityManager;
+    private final JdbcTemplate jdbcTemplate;
 
     @EventListener(ApplicationReadyEvent.class)
-    @Transactional
-    public void createHnswIndex() {
+    public void init() {
+        enableExtension();
+        createHnswIndex();
+    }
+
+    private void enableExtension() {
         try {
-            entityManager.createNativeQuery("""
+            jdbcTemplate.execute("CREATE EXTENSION IF NOT EXISTS vector");
+            log.info("pgvector extension is enabled");
+        } catch (Exception e) {
+            log.warn("Could not enable pgvector extension: {}", e.getMessage());
+        }
+    }
+
+    private void createHnswIndex() {
+        try {
+            jdbcTemplate.execute("""
                 CREATE INDEX IF NOT EXISTS idx_embedding_vector_hnsw
                 ON document_embeddings
                 USING hnsw (embedding_vector vector_cosine_ops)
                 WITH (m = 16, ef_construction = 64)
-                """).executeUpdate();
+                """);
             log.info("HNSW index on document_embeddings.embedding_vector is ready");
         } catch (Exception e) {
-            log.warn("Could not create HNSW index (non-fatal — cosine search will use seq scan): {}", e.getMessage());
+            log.warn("Could not create HNSW index (cosine search will use seq scan): {}", e.getMessage());
         }
     }
 }
