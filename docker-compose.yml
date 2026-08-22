@@ -55,6 +55,7 @@ services:
       - "8000:8000"
     volumes:
       - document_storage:/app/storage/uploads/documents
+      - ./ai-service/app:/app/app
     networks:
       - memoraai-network
 
@@ -68,6 +69,11 @@ services:
       VITE_AI_SERVICE_URL: http://localhost:8000
     ports:
       - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+      - /app/node_modules
     depends_on:
       - backend
       - ai-service
