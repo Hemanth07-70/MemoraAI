@@ -3,7 +3,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+_MODEL_NAME = "all-MiniLM-L6-v2"
 _EMBEDDING_DIMENSION = 384
 
 
@@ -17,19 +17,19 @@ class EmbeddingService:
         return cls._instance
 
     def _initialize(self):
-        from fastembed import TextEmbedding
-        cache_dir = os.environ.get("FASTEMBED_CACHE_PATH", None)
-        logger.info("Loading embedding model '%s' via fastembed (ONNX, dim=%d)...", _MODEL_NAME, _EMBEDDING_DIMENSION)
-        self._model = TextEmbedding(model_name=_MODEL_NAME, cache_dir=cache_dir)
+        from sentence_transformers import SentenceTransformer
+        cache_dir = os.environ.get("SENTENCE_TRANSFORMERS_HOME", None)
+        logger.info("Loading embedding model '%s' (dim=%d)...", _MODEL_NAME, _EMBEDDING_DIMENSION)
+        self._model = SentenceTransformer(_MODEL_NAME, cache_folder=cache_dir)
         self.dimension = _EMBEDDING_DIMENSION
-        logger.info("EmbeddingService ready (fastembed ONNX, model=%s)", _MODEL_NAME)
+        logger.info("EmbeddingService ready (sentence-transformers CPU, model=%s)", _MODEL_NAME)
 
     def generate_embedding(self, text: str) -> list:
         if not text or not text.strip():
             logger.warning("Empty text received for embedding generation.")
             return []
-        embeddings = list(self._model.embed([text]))
-        return embeddings[0].tolist()
+        embedding = self._model.encode(text, convert_to_numpy=True)
+        return embedding.tolist()
 
     def get_dimension(self) -> int:
         return self.dimension
