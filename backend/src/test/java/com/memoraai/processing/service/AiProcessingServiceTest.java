@@ -172,8 +172,7 @@ class AiProcessingServiceTest {
         aiProcessingService.processPendingJobs();
 
         // Assert
-        verify(embeddingService).generateAndPersistEmbedding(chunk1);
-        verify(embeddingService).generateAndPersistEmbedding(chunk2);
+        verify(embeddingService).generateAndPersistEmbeddingsBatch(List.of(chunk1, chunk2));
         
         ArgumentCaptor<ProcessingJob> jobCaptor = ArgumentCaptor.forClass(ProcessingJob.class);
         verify(jobRepository, atLeastOnce()).save(jobCaptor.capture());
