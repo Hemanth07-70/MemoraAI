@@ -31,5 +31,13 @@ class EmbeddingService:
         embedding = self._model.encode(text, convert_to_numpy=True)
         return embedding.tolist()
 
+    def generate_embeddings_batch(self, texts: list) -> list:
+        """Encode all texts in one model call — much faster than N individual calls."""
+        if not texts:
+            return []
+        clean = [t if t and t.strip() else " " for t in texts]
+        embeddings = self._model.encode(clean, batch_size=32, convert_to_numpy=True, show_progress_bar=False)
+        return [e.tolist() for e in embeddings]
+
     def get_dimension(self) -> int:
         return self.dimension

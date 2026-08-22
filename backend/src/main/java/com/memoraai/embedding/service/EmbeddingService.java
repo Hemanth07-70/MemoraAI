@@ -10,13 +10,16 @@ import com.memoraai.embedding.entity.DocumentEmbedding;
 import com.memoraai.embedding.repository.DocumentEmbeddingRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -41,61 +44,73 @@ public class EmbeddingService {
         this.objectMapper = objectMapper;
     }
 
+    /** Batch-embeds all chunks in one HTTP call — replaces the per-chunk loop. */
     @Transactional
-    public void generateAndPersistEmbedding(DocumentChunk chunk) {
-        if (chunk == null || chunk.getChunkText() == null || chunk.getChunkText().trim().isEmpty()) {
-            log.warn("Skipping embedding generation for empty or null chunk {}", chunk != null ? chunk.getId() : "null");
-            return;
-        }
+    public void generateAndPersistEmbeddingsBatch(List<DocumentChunk> chunks) {
+        if (chunks == null || chunks.isEmpty()) return;
 
-        if (embeddingRepository.existsByChunkId(chunk.getId())) {
-            log.info("Embedding already exists for chunk {}. Skipping.", chunk.getId());
-            return;
+        List<DocumentChunk> toProcess = new ArrayList<>();
+        for (DocumentChunk chunk : chunks) {
+            if (chunk == null || chunk.getChunkText() == null || chunk.getChunkText().trim().isEmpty()) continue;
+            if (embeddingRepository.existsByChunkId(chunk.getId())) continue;
+            toProcess.add(chunk);
         }
+        if (toProcess.isEmpty()) return;
 
-        log.info("Embedding generation started for chunk {}", chunk.getId());
+        log.info("Batch embedding {} chunks in one AI service call", toProcess.size());
         long startTime = System.currentTimeMillis();
 
-        EmbeddingRequest request = EmbeddingRequest.builder()
-                .chunkId(chunk.getId().toString())
-                .text(chunk.getChunkText())
-                .build();
+        List<Map<String, String>> requestItems = toProcess.stream()
+                .map(c -> Map.of("chunkId", c.getId().toString(), "text", c.getChunkText()))
+                .toList();
 
         try {
-            EmbeddingResponse response = webClient.post()
-                    .uri("/api/v1/embeddings")
+            Map<String, Object> response = webClient.post()
+                    .uri("/api/v1/embeddings/batch")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .bodyValue(request)
+                    .bodyValue(requestItems)
                     .retrieve()
-                    .bodyToMono(EmbeddingResponse.class)
+                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                     .block();
 
-            if (response != null && response.isSuccess()) {
-                String embeddingJson = objectMapper.writeValueAsString(response.getEmbedding());
-                long generationTime = System.currentTimeMillis() - startTime;
-
-                DocumentEmbedding embedding = DocumentEmbedding.builder()
-                        .chunk(chunk)
-                        .dimension(response.getDimension())
-                        .embeddingJson(embeddingJson)
-                        .modelName(embeddingProperties.getModel())
-                        .generatedAt(Instant.now())
-                        .generationTimeMs(generationTime)
-                        .build();
-
-                embeddingRepository.save(embedding);
-                // Write vector column separately — requires explicit CAST in native SQL
-                embeddingRepository.updateEmbeddingVector(embedding.getId(), embeddingJson);
-                log.info("Embedding stored for chunk {} (Dimension: {}, Time: {}ms)", 
-                        chunk.getId(), response.getDimension(), generationTime);
-            } else {
-                String error = response != null ? response.getError() : "Unknown error";
-                log.error("Failed to generate embedding for chunk {}: {}", chunk.getId(), error);
+            if (response == null || !Boolean.TRUE.equals(response.get("success"))) {
+                log.error("Batch embedding failed: {}", response);
+                return;
             }
-        } catch (JsonProcessingException e) {
-            log.error("Failed to serialize embedding vector for chunk {}: {}", chunk.getId(), e.getMessage());
+
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> results = (List<Map<String, Object>>) response.get("results");
+            long elapsed = System.currentTimeMillis() - startTime;
+            log.info("Batch embedding completed: {} embeddings in {}ms", results.size(), elapsed);
+
+            Map<String, DocumentChunk> chunkById = new java.util.HashMap<>();
+            toProcess.forEach(c -> chunkById.put(c.getId().toString(), c));
+
+            for (Map<String, Object> r : results) {
+                String chunkId = (String) r.get("chunkId");
+                @SuppressWarnings("unchecked")
+                List<Double> vec = (List<Double>) r.get("embedding");
+                int dim = ((Number) r.get("dimension")).intValue();
+                DocumentChunk chunk = chunkById.get(chunkId);
+                if (chunk == null || vec == null) continue;
+                try {
+                    String embeddingJson = objectMapper.writeValueAsString(vec);
+                    DocumentEmbedding embedding = DocumentEmbedding.builder()
+                            .chunk(chunk)
+                            .dimension(dim)
+                            .embeddingJson(embeddingJson)
+                            .modelName(embeddingProperties.getModel())
+                            .generatedAt(Instant.now())
+                            .generationTimeMs(elapsed / toProcess.size())
+                            .build();
+                    embeddingRepository.save(embedding);
+                    embeddingRepository.updateEmbeddingVector(embedding.getId(), embeddingJson);
+                } catch (JsonProcessingException e) {
+                    log.error("Failed to serialize embedding for chunk {}: {}", chunkId, e.getMessage());
+                }
+            }
         } catch (Exception e) {
-            log.error("Error communicating with AI service for chunk {}: {}", chunk.getId(), e.getMessage());
+            log.error("Batch embedding request failed: {}", e.getMessage());
         }
     }
 

@@ -50,8 +50,8 @@ public class ConceptExtractionService {
         // Build batches up front so index is available when collecting results
         List<List<DocumentChunk>> batches = new ArrayList<>();
         List<String> batchTexts = new ArrayList<>();
-        for (int i = 0; i < chunks.size(); i += 5) {
-            int end = Math.min(chunks.size(), i + 5);
+        for (int i = 0; i < chunks.size(); i += 10) {
+            int end = Math.min(chunks.size(), i + 10);
             List<DocumentChunk> batch = new ArrayList<>(chunks.subList(i, end));
             StringBuilder sb = new StringBuilder();
             for (DocumentChunk chunk : batch) sb.append(chunk.getChunkText()).append("\n\n");
@@ -60,7 +60,7 @@ public class ConceptExtractionService {
         }
 
         // Fire all Nemotron calls in parallel (cap at 4 concurrent to respect rate limits)
-        int parallelism = Math.min(4, batches.size());
+        int parallelism = Math.min(8, batches.size());
         ExecutorService executor = Executors.newFixedThreadPool(parallelism);
         List<Future<List<ConceptExtractionResult>>> futures = new ArrayList<>();
         for (String text : batchTexts) {

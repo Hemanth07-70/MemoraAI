@@ -258,17 +258,14 @@ public class AiProcessingService {
         try {
             List<DocumentChunk> chunks = documentChunkRepository.findByExtractedDocumentDocumentIdOrderByChunkIndexAsc(job.getDocument().getId());
             int total = chunks.size();
-            
+
             if (total == 0) {
                 log.warn("No chunks found for document {}", job.getDocument().getId());
             } else {
-                for (int i = 0; i < total; i++) {
-                    embeddingService.generateAndPersistEmbedding(chunks.get(i));
-                    
-                    int progress = (int) (((double) (i + 1) / total) * 100);
-                    job.setProgress(progress);
-                    jobRepository.save(job);
-                }
+                log.info("Batch-embedding {} chunks in one call", total);
+                embeddingService.generateAndPersistEmbeddingsBatch(chunks);
+                job.setProgress(100);
+                jobRepository.save(job);
             }
             
             job.setStatus(JobStatus.COMPLETED);
