@@ -196,7 +196,11 @@ public class AiProcessingService {
         jobRepository.save(job);
 
         try {
-            Document document = job.getDocument();
+            // Reload document with owner eagerly to avoid LazyInitializationException
+            // outside a Hibernate session (scheduler has no @Transactional wrapper)
+            Document document = documentRepository.findById(job.getDocument().getId())
+                    .orElseThrow(() -> new IllegalStateException("Document not found: " + job.getDocument().getId()));
+
             knowledgeGraphService.generateKnowledgeGraph(document.getId());
 
             job.setStatus(JobStatus.COMPLETED);
@@ -205,7 +209,7 @@ public class AiProcessingService {
             jobRepository.save(job);
 
             log.info("Job {} successfully completed knowledge graph generation.", job.getId());
-            checkAndUpdateDocumentStatus(job.getDocument());
+            checkAndUpdateDocumentStatus(document);
 
             // Initialize UserMemoryState for every extracted concept (idempotent)
             try {

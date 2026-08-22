@@ -22,10 +22,10 @@ export const documentsApi = {
   upload: async (file: File) => {
     const formData = new FormData();
     formData.append('file', file);
-    const res = await api.post<ApiResponse<Document>>('/api/v1/documents/upload', formData, {
+    const res = await api.post<ApiResponse<{ document: Document; message: string }>>('/api/v1/documents/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
-    return res.data.data;
+    return res.data.data.document;
   },
   delete: async (id: string) => {
     await api.delete(`/api/v1/documents/${id}`);
