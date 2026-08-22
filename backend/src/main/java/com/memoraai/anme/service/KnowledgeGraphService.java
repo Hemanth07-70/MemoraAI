@@ -39,11 +39,11 @@ public class KnowledgeGraphService {
 
         // Limit the number of concepts sent to the LLM to avoid context window issues
         List<Concept> targetConcepts = concepts;
-        if (concepts.size() > 30) {
-            log.warn("Too many concepts ({}). Limiting to top 30 for knowledge graph generation.", concepts.size());
+        if (concepts.size() > 15) {
+            log.warn("Too many concepts ({}). Limiting to top 15 for knowledge graph generation.", concepts.size());
             targetConcepts = concepts.stream()
                     .sorted((a, b) -> Double.compare(b.getImportanceScore(), a.getImportanceScore()))
-                    .limit(30)
+                    .limit(15)
                     .collect(Collectors.toList());
         }
 

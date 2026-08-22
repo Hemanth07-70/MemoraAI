@@ -36,6 +36,10 @@ import java.util.List;
 @Service
 public class AiProcessingService {
 
+    // Runs CONCEPT_EXTRACTION and INTELLIGENCE jobs in parallel
+    private final java.util.concurrent.ExecutorService jobExecutor =
+            java.util.concurrent.Executors.newFixedThreadPool(4);
+
     private final ProcessingJobRepository jobRepository;
     private final DocumentRepository documentRepository;
     private final ExtractedDocumentService extractedDocumentService;
@@ -91,21 +95,27 @@ public class AiProcessingService {
         }
     }
 
-    @Scheduled(fixedDelay = 5000)
+    @Scheduled(fixedDelay = 1000)
     public void processPendingJobs() {
         List<ProcessingJob> pendingJobs = jobRepository.findByStatus(JobStatus.PENDING);
-        if (pendingJobs.isEmpty()) {
-            return; // No jobs to process
-        }
+        if (pendingJobs.isEmpty()) return;
 
         log.info("Found {} pending processing jobs.", pendingJobs.size());
 
         for (ProcessingJob job : pendingJobs) {
-            try {
-                processJob(job);
-            } catch (Exception e) {
-                log.error("Failed to process job {}: {}", job.getId(), e.getMessage());
-                handleJobFailure(job, e.getMessage());
+            JobType type = job.getJobType();
+            // CONCEPT_EXTRACTION and INTELLIGENCE are independent — run in parallel
+            if (JobType.CONCEPT_EXTRACTION.equals(type) || JobType.INTELLIGENCE.equals(type)) {
+                // Mark PROCESSING immediately so the next scheduler tick skips it
+                job.setStatus(JobStatus.PROCESSING);
+                jobRepository.save(job);
+                jobExecutor.submit(() -> {
+                    try { processJob(job); }
+                    catch (Exception e) { log.error("Async job {} failed: {}", job.getId(), e.getMessage()); handleJobFailure(job, e.getMessage()); }
+                });
+            } else {
+                try { processJob(job); }
+                catch (Exception e) { log.error("Failed to process job {}: {}", job.getId(), e.getMessage()); handleJobFailure(job, e.getMessage()); }
             }
         }
     }

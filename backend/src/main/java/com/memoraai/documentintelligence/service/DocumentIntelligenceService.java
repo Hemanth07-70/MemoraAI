@@ -60,9 +60,9 @@ public class DocumentIntelligenceService {
 
         String text = extracted.getExtractedText();
         // Truncate to avoid context window limits (~50,000 characters is a safe bet for most large models)
-        if (text.length() > 50000) {
-            text = text.substring(0, 50000);
-            log.warn("Truncated extracted text for document {} to 50000 characters for intelligence generation.", documentId);
+        if (text.length() > 20000) {
+            text = text.substring(0, 20000);
+            log.warn("Truncated extracted text for document {} to 20000 characters for intelligence generation.", documentId);
         }
 
         String prompt = String.format(INTELLIGENCE_PROMPT_TEMPLATE, text);
