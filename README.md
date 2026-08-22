@@ -1,326 +1,509 @@
 # MemoraAI
 
-> AI-powered adaptive learning platform that turns your study materials into personalized knowledge.
-
-MemoraAI ingests PDFs, extracts and indexes their content, builds concept knowledge graphs, tracks your mastery per concept using spaced repetition, and delivers RAG-powered chat with retrieval that adapts to your individual learning state.
+An AI-powered learning platform that converts PDFs into an intelligent study system. Upload a document, chat with it using RAG, take adaptive quizzes, and watch a personalized memory engine track which concepts you know and which you need to review.
 
 ---
 
-## Live Demo
+## Table of Contents
 
-| Service | URL |
-|---|---|
-| **Frontend** | https://memoraai-frontend.vercel.app |
-| **Backend** | https://memoraai-backend-7cru.onrender.com |
-| **AI Service** | https://memoraai-ai-service-0uyz.onrender.com |
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Algorithms & Data Models](#algorithms--data-models)
+- [API Reference](#api-reference)
+- [Local Setup](#local-setup)
+- [Environment Variables](#environment-variables)
 
 ---
 
 ## Architecture
 
-```mermaid
-graph TB
-    subgraph Client
-        FE[Frontend<br/>React 18 + TypeScript + Vite]
-    end
-
-    subgraph Cloud Services
-        BE[Backend<br/>Spring Boot 3.x / Java 17]
-        AI[AI Service<br/>FastAPI / Python 3.11]
-        VF[Vercel Functions<br/>Python Serverless]
-    end
-
-    subgraph Data
-        PG[(Neon PostgreSQL 16<br/>+ pgvector extension)]
-    end
-
-    subgraph External APIs
-        NV[Nvidia Nemotron<br/>LLM]
-        HF[HuggingFace Router<br/>Embeddings API]
-    end
-
-    FE -->|REST + JWT| BE
-    BE --> PG
-    BE -->|OCR / Embeddings| AI
-    AI -->|all-MiniLM-L6-v2| HF
-    BE -->|Concept Extraction<br/>Intelligence<br/>Knowledge Graph| NV
-    VF -->|Fallback Embeddings| HF
 ```
-
----
-
-## Technology Stack
-
-| Layer | Technology |
-|---|---|
-| Frontend | React 18, TypeScript, Vite, TailwindCSS, Framer Motion |
-| Backend | Java 17, Spring Boot 3.x, Maven, Spring Security, WebFlux |
-| AI Service | Python 3.11, FastAPI, PyMuPDF, Uvicorn |
-| Database | PostgreSQL 16 + **pgvector** extension (Neon serverless) |
-| Embeddings | `sentence-transformers/all-MiniLM-L6-v2` via HuggingFace Inference API |
-| LLM | Nvidia Nemotron (`nvidia/nemotron-3-super-120b-a12b`) |
-| Deployment | Vercel (frontend + serverless functions), Render (backend + AI service) |
-| Orchestration | Docker Compose (local development) |
-
----
-
-## Document Processing Pipeline
-
-When a PDF is uploaded, it goes through a fully automated 5-stage pipeline:
-
-```
-Upload → OCR → Embedding → Intelligence + Concept Extraction (parallel) → Knowledge Graph
-```
-
-| Stage | What happens | Time |
-|---|---|---|
-| **OCR** | PyMuPDF extracts text page-by-page; file content sent as base64 to AI service | ~5–30s |
-| **Embedding** | Document split into 1000-char chunks (200-char overlap); each chunk embedded as 384-dim vector via HF API; vectors stored in pgvector | ~30–90s |
-| **Intelligence** | Single Nemotron LLM call generates document summary and key insights | ~30–90s |
-| **Concept Extraction** | **Parallelized** — up to 4 concurrent Nemotron calls (1 per 5-chunk batch) extract concept name, description, importance score, difficulty score | ~45–180s |
-| **Knowledge Graph** | Nemotron identifies relationships (PREREQUISITE, RELATED, DEPENDS_ON, etc.) between extracted concepts and builds a directed graph | ~60–120s |
-
-**Total pipeline: ~3–6 minutes** for a typical 20–50 page document.
-
----
-
-## Retrieval Architecture — ANME-Fused Adaptive Retrieval
-
-MemoraAI uses a novel 3-layer retrieval system that personalizes search results based on each user's learning state.
-
-### Layer 1 — pgvector HNSW Index (O(log n) retrieval)
-
-Embeddings are stored in a PostgreSQL `vector(384)` column indexed with **HNSW (Hierarchical Navigable Small World)**:
-
-```sql
-CREATE INDEX idx_emb_hnsw ON document_embeddings
-USING hnsw (embedding_vector vector_cosine_ops)
-WITH (m = 16, ef_construction = 64);
-```
-
-At query time, a single native SQL call retrieves top-K candidates:
-
-```sql
-SELECT d.id, dc.id, dc.chunk_text,
-       (1 - (de.embedding_vector <=> CAST(:queryVector AS vector))) AS score
-FROM document_embeddings de
-JOIN document_chunks dc  ON de.chunk_id = dc.id
-JOIN extracted_documents ON ...
-JOIN documents d         ON ...
-WHERE d.owner_id = :userId AND d.is_deleted = false
-ORDER BY de.embedding_vector <=> CAST(:queryVector AS vector)
-LIMIT :topK
-```
-
-**Result**: O(log n) approximate nearest-neighbor search — 20× faster than the original brute-force O(n) full table scan.
-
----
-
-### Layer 2 — Knowledge Graph Query Expansion
-
-Before generating the query embedding, the system walks the document's concept graph to enrich the query semantically:
-
-```
-Input query:  "explain attention mechanism"
-
-1. Match query tokens against concept names in KG
-   → matched: "attention"  →  Concept: Self-Attention
-
-2. Walk 1-hop neighbours in KG
-   → neighbours: Transformer, Multi-Head Attention, Encoder-Decoder, BERT
-
-3. Expand query:
-   "explain attention mechanism [context: Self-Attention, Transformer,
-    Multi-Head Attention, Encoder-Decoder, BERT]"
-
-4. Embed the expanded string → richer semantic vector → better recall
-```
-
-If no concept matches, the top-5 concepts by importance score are appended as context hints instead.
-
----
-
-### Layer 3 — ANME Memory-Weighted Re-ranking
-
-After HNSW retrieval, each chunk's score is multiplied by a factor derived from the user's **current learning state** for the concepts it contains:
-
-| User mastery for concept | Score multiplier | Rationale |
-|---|---|---|
-| 0.30 – 0.70 | **×1.30** | Active learning zone — highest retrieval priority |
-| > 0.70 | **×0.85** | Already mastered — slight demotion |
-| < 0.30 | **×1.00** | Not yet encountered — neutral |
-
-This means two users asking the same question get **different context** passed to the LLM — one optimized for beginners, one for advanced learners.
-
----
-
-### Full Retrieval Flow
-
-```
-User query
+Browser
   │
-  ▼  Layer 2: KG expansion
-  "query [context: related_concept_1, related_concept_2, ...]"
-  │
-  ▼  Embed expanded query  (HF Inference API)
-  384-dim dense vector
-  │
-  ▼  Layer 1: pgvector HNSW  →  top-50 candidates  (O(log n))
-  │
-  ▼  Layer 3: ANME re-rank   →  top-5 personalized chunks
-  │
-  ▼  Nemotron LLM  →  answer grounded in user's learning context
+  ▼
+Frontend (React 19 + Vite 8)          :5173
+  │  REST / JWT
+  ▼
+Backend (Spring Boot 3 / Java 17)     :8080
+  │  internal HTTP                  │  PostgreSQL + pgvector
+  ▼                                 ▼
+AI Service (FastAPI / Python 3.11)   :8000      Postgres :5432
+```
+
+Four Docker containers communicate over an internal bridge network. The browser only talks to the backend; the backend calls the AI service for PDF extraction and embedding generation.
+
+---
+
+## Tech Stack
+
+### Frontend
+| Library | Version | Role |
+|---------|---------|------|
+| React | 19 | UI framework |
+| Vite | 8 | Dev server & bundler |
+| TypeScript | 6 | Type safety |
+| TanStack Query | 5 | Server state & caching |
+| Axios | 1.18 | HTTP client |
+| React Router | 7 | Client-side routing |
+| Tailwind CSS | 4 | Styling |
+| Framer Motion | 12 | Animations |
+| Recharts | 3 | Memory score charts |
+| D3-force | 3 | Knowledge graph layout |
+| react-zoom-pan-pinch | 4 | Graph pan/zoom |
+| react-markdown | 10 | Render LLM answers |
+
+### Backend
+| Library | Version | Role |
+|---------|---------|------|
+| Spring Boot | 3 | Application framework |
+| Java | 17 | Runtime |
+| Spring Security | 6 | JWT auth |
+| Spring Data JPA | 3 | ORM |
+| Spring WebFlux | 3 | Reactive HTTP client (LLM calls) |
+| PostgreSQL driver | - | DB connectivity |
+| jjwt | 0.12 | JWT generation & validation |
+| Lombok | - | Boilerplate reduction |
+| MapStruct | - | Entity ↔ DTO mapping |
+| SpringDoc OpenAPI | 2 | Swagger UI at `/swagger-ui.html` |
+| Spring Actuator | 3 | Health endpoint |
+
+### AI Service
+| Library | Version | Role |
+|---------|---------|------|
+| FastAPI | 0.111 | REST framework |
+| Uvicorn | 0.30 | ASGI server |
+| sentence-transformers | 3.0.1 | Local embedding model (all-MiniLM-L6-v2) |
+| PyTorch (CPU) | 2.3.1 | sentence-transformers runtime |
+| PyMuPDF | 1.24.5 | PDF text extraction |
+
+### Database
+| Component | Version | Role |
+|-----------|---------|------|
+| PostgreSQL | 16 | Relational store |
+| pgvector extension | pg16 | HNSW vector index for similarity search |
+
+### LLM
+| Model | Provider | Used for |
+|-------|----------|---------|
+| nvidia/nemotron-3-super-120b-a12b | NVIDIA API | Chat answers, quiz generation, concept extraction, KG relationships |
+
+---
+
+## Algorithms & Data Models
+
+### End-to-End Data Flow
+
+```
+PDF Upload
+    │
+    ├─ 1. Store file to disk (/app/storage/uploads/documents)
+    ├─ 2. Create ProcessingJob (status=PENDING)
+    ├─ 3. POST /api/v1/process → AI Service (PyMuPDF extraction)
+    ├─ 4. Save ExtractedDocument (raw text, page count, word count)
+    ├─ 5. Chunk text → DocumentChunk[] (sliding window)
+    ├─ 6. For each chunk: POST /api/v1/embeddings → AI Service → save DocumentEmbedding
+    ├─ 7. Extract Concepts from chunks via LLM (parallel batches of 5)
+    ├─ 8. Build KnowledgeGraph: extract ConceptRelationship[] via LLM
+    ├─ 9. Initialize UserMemoryState per Concept (score = 0.50)
+    └─ Document status → PROCESSED
 ```
 
 ---
 
-## ANME — Adaptive Neural Memory Enhancement
+### 1. PDF Extraction
 
-MemoraAI tracks a `UserMemoryState` per (user, concept) pair:
+Library: **PyMuPDF (fitz)**
 
-- `memoryScore` ∈ [0, 1] — starts at 0.50 for new concepts
-- Updated after quizzes: +0.20 for ≥80%, +0.10 for ≥60%, −0.20 for <60%
-- `nextReviewAt` — spaced repetition schedule (7 days if mastered, 1 day if failed)
-- Feeds directly into retrieval re-ranking (Layer 3 above)
+- Opens PDF pages one by one
+- Extracts text blocks, strips headers/footers via position heuristics
+- Returns: `text`, `page_count`, `word_count`, `character_count`
 
 ---
 
-## Concept Extraction — Parallelization
+### 2. Text Chunking
 
-The original sequential implementation made N/5 Nemotron API calls serially — 880 seconds for a 29-chunk document. The parallelized version uses a bounded thread pool:
+Algorithm: **Sliding Window with Sentence-Boundary Awareness**
 
-```java
-// Cap at 4 concurrent Nemotron calls to respect rate limits
-ExecutorService executor = Executors.newFixedThreadPool(Math.min(4, batches.size()));
-List<Future<List<ConceptExtractionResult>>> futures = batchTexts.stream()
-    .map(text -> executor.submit(() -> extractFromChunk(text)))
-    .collect(Collectors.toList());
+```
+chunk_size  = 1000 characters (configurable via CHUNKING_CHUNK_SIZE)
+overlap     = 200 characters  (configurable via CHUNKING_OVERLAP)
 ```
 
-**Result**: 880s → 176s (5× speedup) for the same 29-chunk document.
+Split logic:
+1. Find the ideal split point at `current + chunk_size`
+2. Walk backwards up to `overlap` characters looking for `.` `?` `!` `\n` to split at a sentence boundary
+3. If no boundary found, split at word boundary (last space)
+4. Guarantee minimum forward progress = `max(1, (chunk_size - overlap) / 2)` to prevent infinite loops
+5. Persist each chunk with `start_offset`, `end_offset`, `word_count`, `character_count`
+
+**Entity: `document_chunks`**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID PK | |
+| extracted_document_id | UUID FK | |
+| chunk_index | INT | Order within document |
+| chunk_text | TEXT | The chunk content |
+| start_offset | INT | Byte offset in full text |
+| end_offset | INT | Byte offset end |
+| character_count | INT | |
+| word_count | INT | |
+| created_at | TIMESTAMP | |
 
 ---
 
-## Deployment Stack (Free Tier)
+### 3. Embedding Model
 
-All services run on free-tier infrastructure with zero cost:
+Model: **all-MiniLM-L6-v2** (sentence-transformers, local)
 
-| Component | Platform | Plan | Notes |
-|---|---|---|---|
-| Frontend | Vercel | Hobby (free) | React SPA + Python serverless functions |
-| Backend | Render | Free | Spring Boot, 512MB RAM, sleeps after 15min idle |
-| AI Service | Render | Free | FastAPI + PyMuPDF, lightweight (~150MB RAM) |
-| Database | Neon | Free | Serverless PostgreSQL, 0.5GB, pgvector enabled |
-| Embeddings | HuggingFace | Free tier | `all-MiniLM-L6-v2` via Inference API |
-| CI/CD | GitHub Actions | Free | Build → test → auto-deploy to Render on every push |
+- Produces 384-dimensional dense vectors
+- Runs entirely inside the AI Service container — no external API needed
+- First container start downloads the model (~90 MB, cached in `model_cache` Docker volume)
+- Embeddings stored as JSON in PostgreSQL; pgvector loads them for HNSW indexing
 
-### Deployment Configuration
+**Entity: `document_embeddings`**
 
-Backend and AI service deploy automatically on every push to `main` via GitHub Actions → Render API. Frontend deploys via Vercel CLI or Git integration.
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID PK | |
+| chunk_id | UUID FK | Links to document_chunks |
+| dimension | INT | Always 384 |
+| embedding_json | TEXT | JSON array of 384 floats |
+| generated_at | TIMESTAMP | |
+| generation_time_ms | BIGINT | Latency tracking |
 
-```yaml
-# render.yaml — Blueprint managed, auto-deploys from GitHub
-services:
-  - name: memoraai-backend
-    plan: free
-    env: docker
-  - name: memoraai-ai-service
-    plan: free
-    env: docker
+---
+
+### 4. RAG Pipeline (3-Layer Retrieval)
+
+Triggered on every `/api/v1/chat/ask` request.
+
+#### Layer 1 — pgvector HNSW Similarity Search
+
+- Query text is embedded with the same all-MiniLM-L6-v2 model
+- pgvector `<=>` (cosine distance) operator retrieves top-K chunks
+- HNSW index gives O(log n) approximate nearest-neighbour at query time
+- Default top-K = 5 (overridable per request)
+
+#### Layer 2 — Knowledge Graph Query Expansion
+
+Before embedding the query, the backend:
+1. Scans all concepts for the document whose `normalized_name` appears in the query string
+2. **Match found**: walks 1-hop in the KG, appends neighbour concept names as `[context: ...]`
+3. **No match**: appends the top-5 highest-importance concepts as context hints
+
+This enriches the query embedding so it captures related concepts even when the user didn't name them explicitly.
+
+#### Layer 3 — ANME Memory-Weighted Re-ranking
+
+After vector retrieval, chunks are re-scored:
+
+```
+memory score 0.30–0.70  →  chunk score × 1.30   (learning zone — prioritised)
+memory score > 0.70     →  chunk score × 0.85   (mastered — demoted slightly)
+memory score < 0.30     →  chunk score × 1.00   (unseen — neutral)
+no memory state         →  chunk score × 1.00   (neutral)
 ```
 
+The multiplier is the max across all concepts that appear in the chunk text. Re-ranked list is re-sorted descending.
+
+#### Hallucination Guard
+
+If the top chunk's score after re-ranking is below `AI_HALLUCINATION_THRESHOLD` (default 0.30), the backend refuses to call the LLM and returns:
+
+> "I couldn't find this information in the uploaded documents."
+
 ---
 
-## Local Development
+### 5. Concept Extraction
+
+Trigger: runs automatically after embedding completes for all chunks.
+
+Process:
+1. Group chunks into batches of 5
+2. Fire up to 4 parallel LLM calls (respects NVIDIA rate limits)
+3. Each call asks Nemotron to return JSON: `[{name, description, importance_score (0–1), difficulty_score (0–1)}]`
+4. Aggregate results: merge duplicates by `normalized_name` (lowercase, trimmed), summing frequency, averaging scores
+5. Link each concept to its most representative chunk embedding
+
+**Entity: `concepts`**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID PK | |
+| document_id | UUID FK | |
+| name | VARCHAR | Original casing |
+| normalized_name | VARCHAR | Lowercase, trimmed — unique per document |
+| description | TEXT | LLM-generated definition |
+| importance_score | DOUBLE | 0–1, how central to the document |
+| difficulty_score | DOUBLE | 0–1, how hard to learn |
+| frequency | INT | How many chunks mention it |
+| embedding_id | UUID FK | Links to representative embedding |
+| created_at | TIMESTAMP | |
+
+---
+
+### 6. Knowledge Graph
+
+Trigger: runs after concept extraction, requires ≥ 2 concepts.
+
+Process:
+1. Select top-30 concepts by importance_score (prevents LLM context overflow)
+2. Send concept names + descriptions to Nemotron
+3. Nemotron returns JSON edges: `[{source, target, type, confidence}]`
+4. Validate: both concepts must exist, type must be a known `RelationshipType`
+5. Compute final `confidence_score` as weighted blend:
+   - 40% LLM confidence
+   - 20% cosine similarity of concept embeddings
+   - 20% co-occurrence score
+   - 20% frequency score
+
+Relationship types: `PREREQUISITE | RELATED | DEPENDS_ON | PART_OF | IMPLEMENTS | USES | EXTENDS | SIMILAR`
+
+**Entity: `concept_relationships`**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID PK | |
+| source_concept_id | UUID FK | |
+| target_concept_id | UUID FK | |
+| relationship_type | ENUM | See above |
+| confidence_score | DOUBLE | 0–1 |
+
+---
+
+### 7. ANME Memory System
+
+**ANME = Active Neural Memory Engine**
+
+A deterministic spaced-repetition system tied to quiz performance.
+
+#### Initialization
+
+When a document finishes processing, one `UserMemoryState` row is created per concept per user, with `memory_score = 0.50`.
+
+#### Memory Score Update (after quiz submission)
+
+```
+quiz score ≥ 80%  →  memory_score += 0.20
+quiz score ≥ 60%  →  memory_score += 0.10
+quiz score <  60%  →  memory_score -= 0.20
+```
+
+Score is clamped to `[0.0, 1.0]`.
+
+#### Spaced Repetition Schedule
+
+```
+memory_score ≥ 0.80  →  next review in 7 days
+memory_score ≥ 0.60  →  next review in 3 days
+memory_score <  0.60  →  next review in 1 day
+```
+
+**Entity: `user_memory_states`**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID PK | |
+| user_id | UUID FK | |
+| concept_id | UUID FK | |
+| memory_score | DOUBLE | 0.0–1.0, starts at 0.50 |
+| review_count | INT | Total quiz submissions for this concept |
+| last_reviewed_at | TIMESTAMP | |
+| next_review_at | TIMESTAMP | Spaced repetition target |
+| created_at | TIMESTAMP | |
+| updated_at | TIMESTAMP | |
+
+---
+
+### 8. Quiz Generation
+
+1. Load concepts for the document with low or medium memory scores (prioritise weak areas)
+2. Sample up to 5 chunks from the document for context
+3. Prompt Nemotron: generate N multiple-choice questions (default 10, max 20) in JSON
+4. Parse and persist `Quiz` + `QuizQuestion[]`
+5. On submission: grade answers, compute percentage, update `UserMemoryState` via ANME, persist `QuizAttempt`
+
+---
+
+### Other Entities
+
+**`users`** — `id`, `first_name`, `last_name`, `email`, `password_hash`, `role (STUDENT|ADMIN)`, `enabled`, `email_verified`, `created_at`
+
+**`documents`** — `id`, `owner_id`, `file_name`, `original_file_name`, `mime_type`, `extension`, `size`, `storage_path`, `status (UPLOADED|PROCESSING|PROCESSED|FAILED)`, `is_deleted`, `uploaded_at`
+
+**`extracted_documents`** — `id`, `document_id`, `extracted_text`, `page_count`, `word_count`, `character_count`
+
+**`processing_jobs`** — `id`, `document_id`, `job_type (OCR|EMBEDDING|CONCEPT_EXTRACTION)`, `status (PENDING|PROCESSING|COMPLETED|FAILED)`, `progress`, `error`, `created_at`, `completed_at`
+
+**`conversations`** — `id`, `user_id`, `document_id`, `title`, `created_at`
+
+**`chat_messages`** — `id`, `conversation_id`, `role (USER|AI)`, `content`, `created_at`
+
+**`quizzes`** — `id`, `document_id`, `user_id`, `status (ACTIVE|COMPLETED)`, `question_count`, `created_at`
+
+**`quiz_questions`** — `id`, `quiz_id`, `question_text`, `option_a/b/c/d`, `correct_answer`, `explanation`, `type`
+
+**`quiz_attempts`** — `id`, `quiz_id`, `user_id`, `score`, `percentage`, `started_at`, `completed_at`
+
+**`learning_events`** — `id`, `user_id`, `concept_id`, `event_type`, `payload`, `created_at`
+
+---
+
+## API Reference
+
+All endpoints return `{ success, message, data }`. Auth endpoints excluded from JWT requirement.
+
+### Auth
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/auth/register` | Register new user |
+| POST | `/api/v1/auth/login` | Login, returns JWT |
+
+### Documents
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/documents/upload` | Upload PDF (multipart/form-data) |
+| GET | `/api/v1/documents` | List user's documents |
+| GET | `/api/v1/documents/{id}` | Get document metadata |
+| DELETE | `/api/v1/documents/{id}` | Soft-delete document |
+
+### Chat
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/chat/ask` | RAG query (3-layer retrieval + LLM) |
+
+### Conversations
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/conversations` | Create conversation |
+| GET | `/api/v1/conversations` | List conversations |
+| GET | `/api/v1/conversations/{id}/messages` | Get chat history |
+
+### Quiz
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/quiz/generate` | Generate adaptive quiz for document |
+| GET | `/api/v1/quiz/{id}` | Get quiz questions |
+| POST | `/api/v1/quiz/{id}/submit` | Submit answers, grade, update memory |
+
+### Memory (ANME)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/memory/me` | All UserMemoryStates for current user |
+| GET | `/api/v1/anme/knowledge-graph/{docId}` | Concept graph for document |
+| GET | `/api/v1/revision/plan` | Concepts due for review today |
+
+### Internal (Backend → AI Service)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/process` | PDF text extraction (PyMuPDF) |
+| POST | `/api/v1/embeddings` | Generate 384-dim embedding for a chunk |
+| GET | `/` | AI service health |
+
+---
+
+## Local Setup
 
 ### Prerequisites
 
-- Docker Desktop
-- Java 17, Node.js 20, Python 3.11
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (includes Docker Compose)
+- A free NVIDIA API key from [build.nvidia.com](https://build.nvidia.com)
 
-### Run with Docker Compose
+### Steps
 
 ```bash
-# Copy and fill in your API keys
-cp .env.example .env   # add NEMOTRON_API_KEY and HF_API_KEY
+# 1. Clone
+git clone https://github.com/Hemanth07-70/MemoraAI.git
+cd MemoraAI
 
-# Start all services (first run builds images, ~5–10 min)
+# 2. Create .env
+echo "NEMOTRON_API_KEY=nvapi-your-key-here" > .env
+
+# 3. Build and start (first time: ~10 min — compiles Spring Boot, installs Python deps, downloads embedding model)
 docker compose up --build
+
+# 4. Open the app
+open http://localhost:5173
 ```
 
-| Service | URL |
-|---|---|
-| Frontend | http://localhost:5173 |
-| Backend | http://localhost:8080 |
-| AI Service | http://localhost:8000 |
-| PostgreSQL (pgvector) | localhost:5432 |
-
-> **Note**: Local PostgreSQL uses `pgvector/pgvector:pg16` image which has the vector extension pre-installed.
-
-### Health Checks
+After the first build, subsequent starts take ~30 seconds:
 
 ```bash
-curl http://localhost:8080/api/health   # {"status":"UP","service":"backend"}
-curl http://localhost:8000/             # {"status":"UP","service":"ai-service"}
+docker compose up
 ```
 
-### Run Services Individually
+### What runs where
 
-**Frontend**
+| Service | URL | Notes |
+|---------|-----|-------|
+| Frontend | http://localhost:5173 | React + Vite dev server, hot reload |
+| Backend | http://localhost:8080 | Spring Boot, Swagger at /swagger-ui.html |
+| AI Service | http://localhost:8000 | FastAPI, docs at /docs |
+| PostgreSQL | localhost:5432 | pgvector/pgvector:pg16 |
+
+### Useful commands
+
 ```bash
-cd frontend && npm install && npm run dev
+# Stop all services
+docker compose down
+
+# Wipe database and start fresh (deletes all data)
+docker compose down -v
+
+# View logs for a specific service
+docker compose logs -f backend
+docker compose logs -f ai-service
+
+# Rebuild only one service
+docker compose up --build ai-service
+
+# Restart just the frontend
+docker compose restart frontend
 ```
 
-**Backend**
-```bash
-cd backend && ./mvnw spring-boot:run
+### Switching the LLM to Ollama (fully offline)
+
+The backend has a built-in Ollama integration. To use it instead of Nemotron:
+
+1. Add Ollama to `docker-compose.yml`:
+
+```yaml
+  ollama:
+    image: ollama/ollama
+    container_name: memoraai-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - memoraai-network
 ```
 
-**AI Service**
+2. Change backend environment:
+
+```yaml
+LLM_PROVIDER: ollama
+OLLAMA_URL: http://ollama:11434
+```
+
+3. Pull a model (after `docker compose up`):
+
 ```bash
-cd ai-service && pip install -r requirements-docker.txt && uvicorn app.main:app --reload --port 8000
+docker exec memoraai-ollama ollama pull llama3
 ```
 
 ---
 
 ## Environment Variables
 
-### Backend (Render / `.env`)
-
-| Variable | Description |
-|---|---|
-| `SPRING_DATASOURCE_URL` | Neon JDBC connection string |
-| `SPRING_DATASOURCE_USERNAME` | Neon DB username |
-| `SPRING_DATASOURCE_PASSWORD` | Neon DB password |
-| `JWT_SECRET` | Random secret for JWT signing |
-| `AI_SERVICE_URL` | URL of the deployed AI service |
-| `CORS_ALLOWED_ORIGINS` | Vercel frontend URL |
-| `NEMOTRON_API_KEY` | Nvidia Inference API key |
-| `AI_HALLUCINATION_THRESHOLD` | Min cosine similarity for chat (default: 0.10) |
-
-### AI Service (Render)
-
-| Variable | Description |
-|---|---|
-| `HF_API_KEY` | HuggingFace token for `all-MiniLM-L6-v2` embeddings |
-
----
-
-## API Endpoints
-
-| Method | Path | Description |
-|---|---|---|
-| POST | `/api/v1/auth/register` | Create account |
-| POST | `/api/v1/auth/login` | Get JWT token |
-| POST | `/api/v1/documents/upload` | Upload PDF |
-| GET | `/api/v1/documents` | List user documents |
-| POST | `/api/v1/chat/ask` | RAG chat with adaptive retrieval |
-| GET | `/api/v1/anme/memory` | Get user memory states |
-| POST | `/api/v1/anme/quiz-result` | Update memory after quiz |
-| GET | `/api/v1/anme/knowledge-graph/:docId` | Get concept graph |
-
----
-
-## License
-
-This project is proprietary. All rights reserved.
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `NEMOTRON_API_KEY` | Yes (if LLM_PROVIDER=nemotron) | — | NVIDIA API key |
+| `LLM_PROVIDER` | No | `nemotron` | `nemotron` or `ollama` |
+| `OLLAMA_URL` | No | `http://localhost:11434` | Ollama base URL (when using ollama provider) |
+| `AI_HALLUCINATION_THRESHOLD` | No | `0.30` | Min cosine score to answer; below this returns "not found" |
+| `CHUNKING_CHUNK_SIZE` | No | `1000` | Characters per chunk |
+| `CHUNKING_OVERLAP` | No | `200` | Overlap between consecutive chunks |
+| `JWT_SECRET` | No | default value | Override for production |
+| `SENTENCE_TRANSFORMERS_HOME` | No | `/app/models` | Cache dir for embedding model |

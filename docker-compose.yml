@@ -1,7 +1,6 @@
 services:
 
   postgres:
-    # pgvector-enabled image required for HNSW similarity search
     image: pgvector/pgvector:pg16
     container_name: memoraai-postgres
     environment:
@@ -19,6 +18,30 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: memoraai-ai-service
+    environment:
+      SENTENCE_TRANSFORMERS_HOME: /app/models
+    ports:
+      - "8000:8000"
+    volumes:
+      - document_storage:/app/storage/uploads/documents
+      - model_cache:/app/models
+      - ./ai-service/app:/app/app
+    networks:
+      - memoraai-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/ || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
 
   backend:
     build:
@@ -41,23 +64,17 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      ai-service:
+        condition: service_healthy
     networks:
       - memoraai-network
-
-  ai-service:
-    build:
-      context: ./ai-service
-      dockerfile: Dockerfile
-    container_name: memoraai-ai-service
-    environment:
-      HF_API_KEY: ${HF_API_KEY}
-    ports:
-      - "8000:8000"
-    volumes:
-      - document_storage:/app/storage/uploads/documents
-      - ./ai-service/app:/app/app
-    networks:
-      - memoraai-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
+    restart: unless-stopped
 
   frontend:
     build:
@@ -75,14 +92,16 @@ services:
       - ./frontend/index.html:/app/index.html
       - /app/node_modules
     depends_on:
-      - backend
-      - ai-service
+      backend:
+        condition: service_healthy
     networks:
       - memoraai-network
+    restart: unless-stopped
 
 volumes:
   postgres_data:
   document_storage:
+  model_cache:
 
 networks:
   memoraai-network:
