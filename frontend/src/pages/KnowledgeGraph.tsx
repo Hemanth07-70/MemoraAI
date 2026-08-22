@@ -169,7 +169,10 @@ export function KnowledgeGraph() {
                     {/* Draw Edges */}
                     <g className="edges">
                       {edges.map((edge) => {
-                        if (!edge.source.x || !edge.target.x) return null;
+                        // D3 replaces source/target strings with node objects after forceLink resolves
+                        if (typeof edge.source === 'string' || typeof edge.target === 'string') return null;
+                        // x can legitimately be 0 — use null check, not falsy check
+                        if (edge.source.x == null || edge.target.x == null) return null;
                         const isSelected = selectedConcept && (edge.source.id === selectedConcept.id || edge.target.id === selectedConcept.id);
                         
                         // Calculate curved path (quadratic bezier)
@@ -195,13 +198,15 @@ export function KnowledgeGraph() {
                     {/* Draw Nodes */}
                     <g className="nodes">
                       {nodes.map((node) => {
-                        if (!node.x) return null;
+                        if (node.x == null) return null;
                         const isSelected = selectedConcept?.id === node.id;
                         
                         // Check if node is a neighbor of selected
-                        const isNeighbor = selectedConcept && edges.some(e => 
-                          (e.source.id === selectedConcept.id && e.target.id === node.id) ||
-                          (e.target.id === selectedConcept.id && e.source.id === node.id)
+                        const isNeighbor = selectedConcept && edges.some(e =>
+                          typeof e.source !== 'string' && typeof e.target !== 'string' && (
+                            (e.source.id === selectedConcept.id && e.target.id === node.id) ||
+                            (e.target.id === selectedConcept.id && e.source.id === node.id)
+                          )
                         );
                         
                         const isFaded = selectedConcept && !isSelected && !isNeighbor;
