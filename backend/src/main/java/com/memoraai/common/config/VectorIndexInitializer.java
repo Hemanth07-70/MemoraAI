@@ -25,6 +25,7 @@ public class VectorIndexInitializer {
     @EventListener(ApplicationReadyEvent.class)
     public void init() {
         enableExtension();
+        addVectorColumn();
         createHnswIndex();
     }
 
@@ -34,6 +35,16 @@ public class VectorIndexInitializer {
             log.info("pgvector extension is enabled");
         } catch (Exception e) {
             log.warn("Could not enable pgvector extension: {}", e.getMessage());
+        }
+    }
+
+    private void addVectorColumn() {
+        try {
+            jdbcTemplate.execute(
+                "ALTER TABLE document_embeddings ADD COLUMN IF NOT EXISTS embedding_vector vector(384)");
+            log.info("document_embeddings.embedding_vector column is ready");
+        } catch (Exception e) {
+            log.warn("Could not add embedding_vector column: {}", e.getMessage());
         }
     }
 
