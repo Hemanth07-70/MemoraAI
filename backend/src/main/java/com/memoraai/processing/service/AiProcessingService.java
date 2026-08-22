@@ -112,11 +112,10 @@ public class AiProcessingService {
 
     private void processJob(ProcessingJob job) {
         log.info("Starting processing for job {} of type {}", job.getId(), job.getJobType());
-        
-        Document document = job.getDocument();
-        if (document == null) {
-            throw new IllegalStateException("Job has no associated document.");
-        }
+
+        // Reload to avoid LazyInitializationException — scheduler has no @Transactional
+        Document document = documentRepository.findById(job.getDocument().getId())
+                .orElseThrow(() -> new IllegalStateException("Document not found: " + job.getDocument().getId()));
 
         if (JobType.EMBEDDING.equals(job.getJobType())) {
             processEmbeddingJob(job);
@@ -230,12 +229,12 @@ public class AiProcessingService {
         job.setStatus(JobStatus.FAILED);
         job.setErrorMessage(errorMessage);
         jobRepository.save(job);
-        
-        Document document = job.getDocument();
-        if (document != null) {
-            document.setStatus(DocumentStatus.FAILED);
-            documentRepository.save(document);
-        }
+
+        // Use findById to avoid proxy lazy-load outside session
+        documentRepository.findById(job.getDocument().getId()).ifPresent(doc -> {
+            doc.setStatus(DocumentStatus.FAILED);
+            documentRepository.save(doc);
+        });
         
         log.error("Job {} marked as FAILED. Reason: {}", job.getId(), errorMessage);
     }
